@@ -12,9 +12,9 @@ build:
 	$(info #Building...)
 	go clean -cache
 	go build ./...
-	ifneq ($(OS),Windows_NT)
+ifneq ($(OS),Windows_NT)
 	GOOS=windows GOARCH=amd64 go build ./...
-	endif
+endif
 
 .PHONY: lint
 lint:
