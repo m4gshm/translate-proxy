@@ -21,10 +21,11 @@ const (
 
 var (
 	configFile    = flag.String("config-file", "", "Configuration file")
+	newFolderName = flag.String("new-folder-name", "default", "New cloud folder name")
 	oAuthTokenUrl = flag.String("oauth-token-url", "https://oauth.yandex.ru/authorize/?response_type=token&client_id=1a6990aa636648e9b2ef855fa7bec2fb", "OAuth token URL")
 	iamTokenUrl   = flag.String("iam-token-url", "https://iam.api.cloud.yandex.net/iam/v1/tokens", "IAM token URL")
-	cloudsUrl     = flag.String("clouds-url", "https://resource-manager.api.cloud.yandex.net/resource-manager/v1/clouds", "Yandex Clouds retrieving URL")
-	foldersUrl    = flag.String("cloud-folders-url", "https://resource-manager.api.cloud.yandex.net/resource-manager/v1/folders", "Yandex Cloud folders retrieving URL")
+	cloudsUrl     = flag.String("clouds-url", "https://resource-manager.api.cloud.yandex.net/resource-manager/v1/clouds", "Yandex Clouds URL")
+	foldersUrl    = flag.String("cloud-folders-url", "https://resource-manager.api.cloud.yandex.net/resource-manager/v1/folders", "Yandex Cloud folders URL")
 	translateUrl  = flag.String("translate-url", "https://translate.api.cloud.yandex.net/translate/v2/translate", "Yandex Translate API URL")
 	address       = flag.String("address", "localhost:8080", "http server address")
 )
@@ -123,7 +124,14 @@ func run() error {
 		if folders, err := yandex.RequestCloudFolders(cloudId); err != nil {
 			return err
 		} else if folders == nil || len(folders.Folders) == 0 {
-			return errors.New("there are no folders in the cloud. Please create it")
+			if resp, err := yandex.CreateCloudFolder(cloudId, *newFolderName); err != nil {
+				return fmt.Errorf("create cloud folder %s: %w", *newFolderName, err)
+			} else if resp.Done {
+				fmt.Printf("folder %s (id = %s) automatically created\n", *newFolderName, resp.ID)
+				folderId = resp.ID
+			} else {
+				return fmt.Errorf("create cloud folder %s error code %s, %s, details = %s", *newFolderName, resp.Error.Code, resp.Error.Message, resp.Error.Details)
+			}
 		} else if len(folders.Folders) == 1 {
 			folder := folders.Folders[0]
 			fmt.Printf("folder %s (id = %s, status = %s) automatically selected\n", folder.Name, folder.ID, folder.Status)

@@ -66,6 +66,22 @@ func (c *YandexClient) RequestCloudFolders(cloudId string) (*FoldersResponse, er
 	}
 }
 
+func (c *YandexClient) CreateCloudFolder(cloudId, name string) (*CreateFolderResponse, error) {
+	f := c.foldersUrl
+	reqPayload := &CreateFolderRequest{
+		CloudID: cloudId,
+		Name:    name,
+	}
+	respPayload := new(CreateFolderResponse)
+	if iamToken, err := c.GetIamToken(); err != nil {
+		return nil, err
+	} else if err := doPostRequest("create folder", c.client, f.String(), iamToken, reqPayload, respPayload); err != nil {
+		return nil, err
+	} else {
+		return respPayload, nil
+	}
+}
+
 func (c *YandexClient) RequestIamToken() (*IamTokenResponse, error) {
 	method := "requestIamToken"
 	respPayload := new(IamTokenResponse)
@@ -85,14 +101,10 @@ func (c *YandexClient) Translate(request *TranslateRequest) (*TranslateResponse,
 	if len(request.FolderID) == 0 {
 		request.FolderID = c.Config.FolderId
 	}
-	requestBody, err := json.Marshal(request)
-	if err != nil {
-		return nil, fmt.Errorf("translate request marshal error %+v: %w", request, err)
-	}
 	resp := new(TranslateResponse)
 	if iamToken, err := c.GetIamToken(); err != nil {
 		return nil, err
-	} else if err := doAuthRequest("translate", c.client, http.MethodPost, c.translateUrl, iamToken, bytes.NewReader(requestBody), resp); err != nil {
+	} else if err := doPostRequest("translate", c.client, c.translateUrl, iamToken, request, resp); err != nil {
 		return nil, err
 	}
 	return resp, nil
@@ -118,6 +130,14 @@ func doGetRequest[T any](methodName string, client *http.Client, url string, iam
 	return doAuthRequest(methodName, client, http.MethodGet, url, iamToken, nil, resp)
 }
 
+func doPostRequest[Req, Resp any](methodName string, client *http.Client, url string, iamToken string, req *Req, resp *Resp) error {
+	requestBody, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("request marshal %+v: %w", req, err)
+	}
+	return doAuthRequest(methodName, client, http.MethodPost, url, iamToken, bytes.NewReader(requestBody), resp)
+}
+
 func doAuthRequest[T any](callName string, client *http.Client, httpMethod string, url string, iamToken string, reqBody io.Reader, respReceiver *T) error {
 	if req, err := http.NewRequest(httpMethod, url, reqBody); err != nil {
 		return fmt.Errorf("%s %s request: %w", callName, httpMethod, err)
@@ -132,7 +152,7 @@ func doRequest[T any](methodName string, client *http.Client, req *http.Request,
 		return fmt.Errorf(methodName+" response: %w", err)
 	} else if resp.StatusCode != 200 {
 		payload, _ := readBody(resp)
-		return &HttpStatusError{Code: resp.StatusCode, status: resp.Status, body: string(payload) }
+		return &HttpStatusError{Code: resp.StatusCode, status: resp.Status, body: string(payload)}
 	} else if bodyRawPayload, err := readBody(resp); err != nil {
 		return fmt.Errorf(methodName+" response payload read %s: %w", string(bodyRawPayload), err)
 	} else if bodyRawPayload == nil {
@@ -179,6 +199,29 @@ type Folder struct {
 	Description string `json:"description"`
 	Labels      string `json:"labels"`
 	Status      string `json:"status"`
+}
+
+type CreateFolderRequest struct {
+	CloudID     string `json:"cloudId"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Labels      string `json:"labels"`
+}
+
+type CreateFolderResponse struct {
+	ID          string `json:"id"`
+	Description string `json:"description"`
+	CreatedAt   string `json:"createdAt"`
+	CreatedBy   string `json:"createdBy"`
+	ModifiedAt  string `json:"modifiedAt"`
+	Done        bool   `json:"done"`
+	Metadata    string `json:"metadata"`
+	Error       struct {
+		Code    string   `json:"code"`
+		Message string   `json:"message"`
+		Details []string `json:"details"`
+	} `json:"error"`
+	Response string `json:"response"`
 }
 
 type CloudsResponse struct {
