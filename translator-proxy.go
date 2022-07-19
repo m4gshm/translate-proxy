@@ -142,7 +142,6 @@ func run() error {
 				n := i + 1
 				fmt.Printf("[%d] folder%d (id = %s, name = %s, status = %s)\n", n, n, folder.ID, folder.Name, folder.Status)
 			}
-			// TODO:  [3] Create a new folder
 			fmt.Print("Please enter your numeric choice: ")
 			var folderNum int
 			fmt.Scanln(&folderNum)
@@ -155,7 +154,6 @@ func run() error {
 					fmt.Printf("Entered invalid folder number, must be in the range  %d to %d\n", 1, len(folders.Folders))
 				}
 			}
-
 		}
 		config.FolderId = folderId
 	}
