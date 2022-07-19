@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -198,7 +199,7 @@ func (h *Handler) Post(response http.ResponseWriter, request *http.Request) {
 	if body, err := h.translate(request); err != nil {
 		http.Error(response, err.Error(), http.StatusBadRequest)
 	} else {
-		logResponse(body)
+		logPayload("<-", body)
 		cors(response)
 		response.WriteHeader(http.StatusOK)
 		if _, err := response.Write(body); err != nil {
@@ -213,15 +214,25 @@ func (h *Handler) translate(request *http.Request) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("request read: %w", err)
 	}
+	logPayload("->", body)
 	payload := new(TranslateRequest)
 	if err = json.Unmarshal(body, payload); err != nil {
 		return nil, fmt.Errorf("request unmarshal: %w", err)
 	}
+	payload.SourceLanguageCode = extractLanguage(payload.SourceLanguageCode)
+	payload.TargetLanguageCode = extractLanguage(payload.TargetLanguageCode)
 	respPayload, err := h.yandex.Translate(payload)
 	if err != nil {
 		return nil, err
 	}
 	return json.Marshal(respPayload)
+}
+
+func extractLanguage(langCountry string) string {
+	if strings.Contains(langCountry, "-") {
+		return strings.Split(langCountry, "-")[0]
+	}
+	return langCountry
 }
 
 func cors(w http.ResponseWriter) {

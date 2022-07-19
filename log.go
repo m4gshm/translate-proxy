@@ -6,8 +6,8 @@ func logError(err error) {
 	log.Printf("ERROR %s\n", err.Error())
 }
 
-func logResponse(response []byte) {
-	log.Println(string(response))
+func logPayload(typ string, payload []byte) {
+	log.Println(typ, ":", string(payload))
 }
 
 func logDebug(format string, v ...any) {
