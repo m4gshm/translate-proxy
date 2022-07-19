@@ -63,8 +63,8 @@ func run() error {
 	loadedConfig := *config
 
 	yandex, err := NewYandexClient(config, &http.Client{}, *iamTokenUrl, *cloudsUrl, *foldersUrl, *translateUrl)
-	validOauth := false
-	for !validOauth {
+	checkedOAuth := false
+	for !checkedOAuth {
 		if len(config.OAuthToken) == 0 {
 			fmt.Println("Please go to", *oAuthTokenUrl)
 			fmt.Println("in order to obtain OAuth token.")
@@ -76,6 +76,7 @@ func run() error {
 			return fmt.Errorf("yandex client: %w", err)
 		}
 
+		//requests iam token for oauth checking
 		if _, err := yandex.GetIamToken(); err != nil {
 			var statusErr *HttpStatusError
 			if errors.As(err, &statusErr) && statusErr.Code == 401 {
@@ -84,7 +85,7 @@ func run() error {
 				return err
 			}
 		} else {
-			validOauth = true
+			checkedOAuth = true
 		}
 	}
 
