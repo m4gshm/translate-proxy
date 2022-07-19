@@ -11,16 +11,28 @@ import (
 	"time"
 )
 
+type HttpStatusError struct {
+	Code   int
+	status string
+	body   string
+}
+
+func (e *HttpStatusError) Error() string {
+	return fmt.Sprintf("invalid status %d : %s, response\n%s", e.Code, e.status, e.body)
+}
+
+var _ error = (*HttpStatusError)(nil)
+
 func NewYandexClient(config *Config, client *http.Client, iamTokenUrl, cloudsUrl, foldersUrl, translateUrl string) (*YandexClient, error) {
 	fUrl, err := url.Parse(foldersUrl)
 	if err != nil {
 		return nil, fmt.Errorf("invalid folders URL %s; %w", foldersUrl, err)
 	}
-	return &YandexClient{config: config, client: client, iamTokenUrl: iamTokenUrl, cloudsUrl: cloudsUrl, foldersUrl: *fUrl, translateUrl: translateUrl}, nil
+	return &YandexClient{Config: config, client: client, iamTokenUrl: iamTokenUrl, cloudsUrl: cloudsUrl, foldersUrl: *fUrl, translateUrl: translateUrl}, nil
 }
 
 type YandexClient struct {
-	config       *Config
+	Config       *Config
 	client       *http.Client
 	iamTokenUrl  string
 	cloudsUrl    string
@@ -28,11 +40,9 @@ type YandexClient struct {
 	translateUrl string
 }
 
-
-
 func (c *YandexClient) RequestClouds() (*CloudsResponse, error) {
 	respPayload := new(CloudsResponse)
-	if iamToken, err := c.iamToken(); err != nil {
+	if iamToken, err := c.GetIamToken(); err != nil {
 		return nil, err
 	} else if err := doGetRequest("clouds", c.client, c.cloudsUrl, iamToken, respPayload); err != nil {
 		return nil, err
@@ -47,7 +57,7 @@ func (c *YandexClient) RequestCloudFolders(cloudId string) (*FoldersResponse, er
 	q.Set("cloudId", cloudId)
 	f.RawQuery = q.Encode()
 	respPayload := new(FoldersResponse)
-	if iamToken, err := c.iamToken(); err != nil {
+	if iamToken, err := c.GetIamToken(); err != nil {
 		return nil, err
 	} else if err := doGetRequest("cloud folders", c.client, f.String(), iamToken, respPayload); err != nil {
 		return nil, err
@@ -56,15 +66,15 @@ func (c *YandexClient) RequestCloudFolders(cloudId string) (*FoldersResponse, er
 	}
 }
 
-func (c *YandexClient) RequestIamToken(oAuthToken string) (*IamTokenResponse, error) {
+func (c *YandexClient) RequestIamToken() (*IamTokenResponse, error) {
 	method := "requestIamToken"
 	respPayload := new(IamTokenResponse)
-	iamTokenRequest := IamTokenRequest{YandexPassportOauthToken: oAuthToken}
+	iamTokenRequest := IamTokenRequest{YandexPassportOauthToken: c.Config.OAuthToken}
 	if reqBody, err := json.Marshal(&iamTokenRequest); err != nil {
 		return nil, fmt.Errorf("%s request marshal %+v: %w", method, iamTokenRequest, err)
 	} else if req, err := http.NewRequest(http.MethodPost, c.iamTokenUrl, bytes.NewReader(reqBody)); err != nil {
 		return nil, fmt.Errorf("%s request %w", method, err)
-	} else if err := doRequest("yandexPassportOauthToken", c.client, req, respPayload); err != nil {
+	} else if err := doRequest(method, c.client, req, respPayload); err != nil {
 		return nil, err
 	}
 	fmt.Printf("requested Yandex API IAM token %s, expired at %s\n", respPayload.IamToken, respPayload.ExpiresAt)
@@ -73,14 +83,14 @@ func (c *YandexClient) RequestIamToken(oAuthToken string) (*IamTokenResponse, er
 
 func (c *YandexClient) Translate(request *TranslateRequest) (*TranslateResponse, error) {
 	if len(request.FolderID) == 0 {
-		request.FolderID = c.config.FolderId
+		request.FolderID = c.Config.FolderId
 	}
 	requestBody, err := json.Marshal(request)
 	if err != nil {
 		return nil, fmt.Errorf("translate request marshal error %+v: %w", request, err)
 	}
 	resp := new(TranslateResponse)
-	if iamToken, err := c.iamToken(); err != nil {
+	if iamToken, err := c.GetIamToken(); err != nil {
 		return nil, err
 	} else if err := doAuthRequest("translate", c.client, http.MethodPost, c.translateUrl, iamToken, bytes.NewReader(requestBody), resp); err != nil {
 		return nil, err
@@ -88,19 +98,17 @@ func (c *YandexClient) Translate(request *TranslateRequest) (*TranslateResponse,
 	return resp, nil
 }
 
-func (c *YandexClient) iamToken() (string, error) {
-	iamToken := c.config.IamToken
-	iamTokenExpired := c.config.IamTokenExpired
-	if iamTokenExpired.Before(time.Now()) {
-		oAuthToken := c.config.OAuthToken
-		tokenResp, err := c.RequestIamToken(oAuthToken)
+func (c *YandexClient) GetIamToken() (string, error) {
+	iamToken := c.Config.IamToken
+	if c.Config.IsIamTokenExpired() {
+		tokenResp, err := c.RequestIamToken()
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("request IAM token: %w", err)
 		}
 		iamToken = tokenResp.IamToken
 		//todo: need lock
-		c.config.IamToken = iamToken
-		c.config.IamTokenExpired = tokenResp.ExpiresAt
+		c.Config.IamToken = iamToken
+		c.Config.IamTokenExpired = tokenResp.ExpiresAt
 
 	}
 	return iamToken, nil
@@ -124,7 +132,7 @@ func doRequest[T any](methodName string, client *http.Client, req *http.Request,
 		return fmt.Errorf(methodName+" response: %w", err)
 	} else if resp.StatusCode != 200 {
 		payload, _ := readBody(resp)
-		return fmt.Errorf("unexpected response status %s, code %d, response\n%s", resp.Status, resp.StatusCode, payload)
+		return &HttpStatusError{Code: resp.StatusCode, status: resp.Status, body: string(payload) }
 	} else if bodyRawPayload, err := readBody(resp); err != nil {
 		return fmt.Errorf(methodName+" response payload read %s: %w", string(bodyRawPayload), err)
 	} else if bodyRawPayload == nil {
@@ -190,6 +198,7 @@ type Cloud struct {
 type TranslateRequest struct {
 	FolderID           string   `json:"folderId"`
 	Texts              []string `json:"texts"`
+	SourceLanguageCode string   `json:"sourceLanguageCode"`
 	TargetLanguageCode string   `json:"targetLanguageCode"`
 }
 

@@ -44,3 +44,8 @@ func (config *Config) WriteConfig(file string) error {
 		return ioutil.WriteFile(file, payload, os.ModePerm)
 	}
 }
+
+func (config *Config) IsIamTokenExpired() bool {
+	now := time.Now()
+	return len(config.IamToken) == 0 || config.IamTokenExpired.Before(now)
+}

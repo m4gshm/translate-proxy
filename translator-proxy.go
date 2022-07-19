@@ -20,14 +20,13 @@ const (
 )
 
 var (
-	configFile     = flag.String("config-file", "", "Configuration file")
-	confOAuthToken = flag.String("oauth-token", "", "OAuth token")
-	oAuthTokenUrl  = flag.String("oauth-token-url", "https://oauth.yandex.ru/authorize/?response_type=token&client_id=1a6990aa636648e9b2ef855fa7bec2fb", "OAuth token URL")
-	iamTokenUrl    = flag.String("iam-token-url", "https://iam.api.cloud.yandex.net/iam/v1/tokens", "IAM token URL")
-	cloudsUrl      = flag.String("clouds-url", "https://resource-manager.api.cloud.yandex.net/resource-manager/v1/clouds", "Yandex Clouds retrieving URL")
-	foldersUrl     = flag.String("cloud-folders-url", "https://resource-manager.api.cloud.yandex.net/resource-manager/v1/folders", "Yandex Cloud folders retrieving URL")
-	translateUrl   = flag.String("translate-url", "https://translate.api.cloud.yandex.net/translate/v2/translate", "Yandex Translate API URL")
-	address        = flag.String("address", "localhost:8080", "http server address")
+	configFile    = flag.String("config-file", "", "Configuration file")
+	oAuthTokenUrl = flag.String("oauth-token-url", "https://oauth.yandex.ru/authorize/?response_type=token&client_id=1a6990aa636648e9b2ef855fa7bec2fb", "OAuth token URL")
+	iamTokenUrl   = flag.String("iam-token-url", "https://iam.api.cloud.yandex.net/iam/v1/tokens", "IAM token URL")
+	cloudsUrl     = flag.String("clouds-url", "https://resource-manager.api.cloud.yandex.net/resource-manager/v1/clouds", "Yandex Clouds retrieving URL")
+	foldersUrl    = flag.String("cloud-folders-url", "https://resource-manager.api.cloud.yandex.net/resource-manager/v1/folders", "Yandex Cloud folders retrieving URL")
+	translateUrl  = flag.String("translate-url", "https://translate.api.cloud.yandex.net/translate/v2/translate", "Yandex Translate API URL")
+	address       = flag.String("address", "localhost:8080", "http server address")
 )
 
 func usage() {
@@ -63,30 +62,29 @@ func run() error {
 	}
 	loadedConfig := *config
 
-	oAuthToken := config.OAuthToken
-	if len(oAuthToken) == 0 {
-		if confOAuthToken != nil && len(*confOAuthToken) > 0 {
-			oAuthToken = *confOAuthToken
-		} else {
+	yandex, err := NewYandexClient(config, &http.Client{}, *iamTokenUrl, *cloudsUrl, *foldersUrl, *translateUrl)
+	validOauth := false
+	for !validOauth {
+		if len(config.OAuthToken) == 0 {
 			fmt.Println("Please go to", *oAuthTokenUrl)
 			fmt.Println("in order to obtain OAuth token.")
-			fmt.Print("Please enter OAuth token:")
-			fmt.Scanln(&oAuthToken)
-			config.OAuthToken = oAuthToken
+			fmt.Print("Please enter OAuth token: ")
+			fmt.Scanln(&config.OAuthToken)
 		}
-	}
 
-	yandex, err := NewYandexClient(config, &http.Client{}, *iamTokenUrl, *cloudsUrl, *foldersUrl, *translateUrl)
-	if err != nil {
-		return fmt.Errorf("yandex client: %w", err)
-	}
+		if err != nil {
+			return fmt.Errorf("yandex client: %w", err)
+		}
 
-	if len(config.IamToken) == 0 {
-		if token, err := yandex.RequestIamToken(oAuthToken); err != nil {
-			return fmt.Errorf("request IAM token: %w", err)
+		if _, err := yandex.GetIamToken(); err != nil {
+			var statusErr *HttpStatusError
+			if errors.As(err, &statusErr) && statusErr.Code == 401 {
+				config.OAuthToken = ""
+			} else {
+				return err
+			}
 		} else {
-			config.IamToken = token.IamToken
-			config.IamTokenExpired = token.ExpiresAt
+			validOauth = true
 		}
 	}
 
@@ -159,6 +157,7 @@ func run() error {
 		}
 	}
 
+	// yandex.Config = config
 	fmt.Printf("Start listening %s\n", *address)
 	return newServer(yandex, *address).ListenAndServe()
 }
@@ -208,7 +207,7 @@ func (h *Handler) translate(request *http.Request) ([]byte, error) {
 		return nil, fmt.Errorf("request read: %w", err)
 	}
 	payload := new(TranslateRequest)
-	if err = json.Unmarshal(body, request); err != nil {
+	if err = json.Unmarshal(body, payload); err != nil {
 		return nil, fmt.Errorf("request unmarshal: %w", err)
 	}
 	respPayload, err := h.yandex.Translate(payload)

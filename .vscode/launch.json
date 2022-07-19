@@ -22,20 +22,7 @@
             "request": "launch",
             "mode": "auto",
             "program": "${fileDirname}",
-            "args": [
-                "-oauth-token",
-                "AQAAAAAAA8e6AATuwZhGUSsQ2UhYsPhUraZbuKk"
-                // "-apiToken",
-                // "${input:apiToken}"
-            ],
             "asRoot": true
         }
-    ],
-    "inputs": [
-        // {
-        //     "type": "promptString",
-        //     "id": "apiToken",
-        //     "description": "Yandex IAM token"
-        // }
     ]
 }
