@@ -30,3 +30,7 @@ lint:
 	nakedret ./...
 	go install golang.org/x/lint/golint@latest
 	golint ./...
+
+.PHONY: debug
+debug: 	
+	dlv debug --headless --listen=:2345 --log --api-version=2

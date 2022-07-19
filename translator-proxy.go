@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -8,10 +9,10 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	// ycsdk "github.com/yandex-cloud/go-sdk"
 )
 
 const (
@@ -19,15 +20,14 @@ const (
 )
 
 var (
-	oAuthToken    = flag.String("oauth-token", "", "OAuth token")
-	oAuthTokenUrl = flag.String("oauth-token-url", "https://oauth.yandex.ru/authorize/?response_type=token&client_id=1a6990aa636648e9b2ef855fa7bec2fb", "OAuth token URL")
-	iamTokenUrl   = flag.String("iam-token-url", "https://iam.api.cloud.yandex.net/iam/v1/tokens", "IAM token URL")
-	cloudsUrl     = flag.String("clouds-url", "https://resource-manager.api.cloud.yandex.net/resource-manager/v1/clouds", "Yandex Clouds retrieving URL")
-	foldersUrl    = flag.String("cloud-folders-url", "https://resource-manager.api.cloud.yandex.net/resource-manager/v1/folders", "Yandex Cloud folders retrieving URL")
-
-	address  = flag.String("address", "localhost:8080", "http server address")
-	apiUrl   = flag.String("url", "https://translate.api.cloud.yandex.net/translate/v2/translate", "Yandex Translate API URL")
-	iamToken = flag.String("iam-token", "", "IAM token")
+	configFile     = flag.String("config-file", "", "Configuration file")
+	confOAuthToken = flag.String("oauth-token", "", "OAuth token")
+	oAuthTokenUrl  = flag.String("oauth-token-url", "https://oauth.yandex.ru/authorize/?response_type=token&client_id=1a6990aa636648e9b2ef855fa7bec2fb", "OAuth token URL")
+	iamTokenUrl    = flag.String("iam-token-url", "https://iam.api.cloud.yandex.net/iam/v1/tokens", "IAM token URL")
+	cloudsUrl      = flag.String("clouds-url", "https://resource-manager.api.cloud.yandex.net/resource-manager/v1/clouds", "Yandex Clouds retrieving URL")
+	foldersUrl     = flag.String("cloud-folders-url", "https://resource-manager.api.cloud.yandex.net/resource-manager/v1/folders", "Yandex Cloud folders retrieving URL")
+	translateUrl   = flag.String("translate-url", "https://translate.api.cloud.yandex.net/translate/v2/translate", "Yandex Translate API URL")
+	address        = flag.String("address", "localhost:8080", "http server address")
 )
 
 func usage() {
@@ -44,129 +44,143 @@ func main() {
 }
 
 func run() error {
-	log.SetPrefix(name + ": ")
-
 	flag.Usage = usage
 	flag.Parse()
 
-	yandex, err := NewYandexClient(&http.Client{}, *iamTokenUrl, *cloudsUrl, *foldersUrl)
-	if err != nil {
-		return err
+	writeableConfig := false
+	if configFile == nil || len(*configFile) == 0 {
+		if homeDir, err := os.UserHomeDir(); err != nil {
+			return fmt.Errorf("home dir: %w", err)
+		} else {
+			*configFile = path.Join(homeDir, ".config", name, "config.yaml")
+			writeableConfig = true
+		}
 	}
 
-	if len(*iamToken) == 0 {
-		if len(*oAuthToken) == 0 {
+	config, err := ReadConfig(*configFile)
+	if err != nil {
+		return fmt.Errorf("read config file: %w", err)
+	}
+	loadedConfig := *config
+
+	oAuthToken := config.OAuthToken
+	if len(oAuthToken) == 0 {
+		if confOAuthToken != nil && len(*confOAuthToken) > 0 {
+			oAuthToken = *confOAuthToken
+		} else {
 			fmt.Println("Please go to", *oAuthTokenUrl)
 			fmt.Println("in order to obtain OAuth token.")
-			fmt.Print("Please enter OAuth token or stay blank if you want to enter IAM token:")
-			fmt.Scanln(oAuthToken)
+			fmt.Print("Please enter OAuth token:")
+			fmt.Scanln(&oAuthToken)
+			config.OAuthToken = oAuthToken
 		}
+	}
 
-		yandex.OAuthToken = *oAuthToken
-		if len(yandex.OAuthToken) != 0 {
-			if token, err := yandex.RequestIamToken(); err != nil {
-				return fmt.Errorf("requestIamToken; %w", err)
-			} else {
-				yandex.IamToken = token.IamToken
-			}
+	yandex, err := NewYandexClient(config, &http.Client{}, *iamTokenUrl, *cloudsUrl, *foldersUrl, *translateUrl)
+	if err != nil {
+		return fmt.Errorf("yandex client: %w", err)
+	}
+
+	if len(config.IamToken) == 0 {
+		if token, err := yandex.RequestIamToken(oAuthToken); err != nil {
+			return fmt.Errorf("request IAM token: %w", err)
 		} else {
-			if _, err := fmt.Printf("Please enter IAM token:"); err != nil {
-				return err
+			config.IamToken = token.IamToken
+			config.IamTokenExpired = token.ExpiresAt
+		}
+	}
+
+	if len(config.FolderId) == 0 {
+		var cloudId string
+		if clouds, err := yandex.RequestClouds(); err != nil {
+			return err
+		} else if clouds == nil || len(clouds.Clouds) == 0 {
+			return errors.New("threre is no cloud for your account. Please create it")
+		} else if len(clouds.Clouds) == 1 {
+			cloud := clouds.Clouds[0]
+			fmt.Printf("cloud %s (id = %s) automatically selected\n", cloud.Name, cloud.ID)
+			cloudId = cloud.ID
+		} else {
+			fmt.Println("Please select cloud to use:")
+			for i, cloud := range clouds.Clouds {
+				n := i + 1
+				fmt.Printf("[%d] cloud%d (id = %s, name = %s)\n", n, n, cloud.ID, cloud.Name)
 			}
-			fmt.Scanln(iamToken)
-		}
-	} else {
-		yandex.IamToken = *iamToken
-	}
-
-	if len(yandex.IamToken) == 0 {
-		return fmt.Errorf("IAM token must be defined")
-	}
-
-	var cloudId string
-	if clouds, err := yandex.RequestClouds(); err != nil {
-		return err
-	} else if clouds == nil || len(clouds.Clouds) == 0 {
-		return errors.New("threre is no cloud for your account. Please create it")
-	} else if len(clouds.Clouds) == 1 {
-		cloud := clouds.Clouds[0]
-		fmt.Printf("cloud %s (id = %s) automatically selected\n", cloud.Name, cloud.ID)
-		cloudId = cloud.ID
-	} else {
-		fmt.Println("Please select cloud to use:")
-		for i, cloud := range clouds.Clouds {
-			n := i + 1
-			fmt.Printf("[%d] cloud%d (id = %s, name = %s)\n", n, n, cloud.ID, cloud.Name)
-		}
-		fmt.Print("Please enter your numeric choice: ")
-		var cloudNum int
-		fmt.Scanln(&cloudNum)
-		for {
-			if cloudNum > 0 && cloudNum <= len(clouds.Clouds) {
-				cloud := clouds.Clouds[cloudNum-1]
-				cloudId = cloud.ID
-				break
-			} else {
-				fmt.Printf("Entered invalid cloud number, must be in the range  %d to %d\n", 1, len(clouds.Clouds))
-			}
-		}
-	}
-
-	var folderId string
-	if folders, err := yandex.RequestCloudFolders(cloudId); err != nil {
-		return err
-	} else if folders == nil || len(folders.Folders) == 0 {
-		return errors.New("there are no folders in the cloud. Please create it")
-	} else if len(folders.Folders) == 1 {
-		folder := folders.Folders[0]
-		fmt.Printf("folder %s (id = %s, status = %s) automatically selected\n", folder.Name, folder.ID, folder.Status)
-		folderId = folder.ID
-	} else {
-		fmt.Print("Please choose a folder to use:")
-		for i, folder := range folders.Folders {
-			n := i + 1
-			fmt.Printf("[%d] folder%d (id = %s, name = %s, status = %s)\n", n, n, folder.ID, folder.Name, folder.Status)
-		}
-		// TODO:  [3] Create a new folder
-		fmt.Print("Please enter your numeric choice: ")
-		var folderNum int
-		fmt.Scanln(&folderNum)
-		for {
-			if folderNum > 0 && folderNum <= len(folders.Folders) {
-				folder := folders.Folders[folderNum-1]
-				folderId = folder.ID
-				break
-			} else {
-				fmt.Printf("Entered invalid folder number, must be in the range  %d to %d\n", 1, len(folders.Folders))
+			fmt.Print("Please enter your numeric choice: ")
+			var cloudNum int
+			fmt.Scanln(&cloudNum)
+			for {
+				if cloudNum > 0 && cloudNum <= len(clouds.Clouds) {
+					cloud := clouds.Clouds[cloudNum-1]
+					cloudId = cloud.ID
+					break
+				} else {
+					fmt.Printf("Entered invalid cloud number, must be in the range  %d to %d\n", 1, len(clouds.Clouds))
+				}
 			}
 		}
 
+		var folderId string
+		if folders, err := yandex.RequestCloudFolders(cloudId); err != nil {
+			return err
+		} else if folders == nil || len(folders.Folders) == 0 {
+			return errors.New("there are no folders in the cloud. Please create it")
+		} else if len(folders.Folders) == 1 {
+			folder := folders.Folders[0]
+			fmt.Printf("folder %s (id = %s, status = %s) automatically selected\n", folder.Name, folder.ID, folder.Status)
+			folderId = folder.ID
+		} else {
+			fmt.Print("Please choose a folder to use:")
+			for i, folder := range folders.Folders {
+				n := i + 1
+				fmt.Printf("[%d] folder%d (id = %s, name = %s, status = %s)\n", n, n, folder.ID, folder.Name, folder.Status)
+			}
+			// TODO:  [3] Create a new folder
+			fmt.Print("Please enter your numeric choice: ")
+			var folderNum int
+			fmt.Scanln(&folderNum)
+			for {
+				if folderNum > 0 && folderNum <= len(folders.Folders) {
+					folder := folders.Folders[folderNum-1]
+					folderId = folder.ID
+					break
+				} else {
+					fmt.Printf("Entered invalid folder number, must be in the range  %d to %d\n", 1, len(folders.Folders))
+				}
+			}
+
+		}
+		config.FolderId = folderId
 	}
 
-	fmt.Printf("Start listening %s", *address)
-	return NewServer(&http.Client{}, *address, *apiUrl, *iamToken, folderId).ListenAndServe()
+	if writeableConfig && loadedConfig != *config {
+		if err := config.WriteConfig(*configFile); err != nil {
+			logError(fmt.Errorf("wirte config file: %w", err))
+		}
+	}
+
+	fmt.Printf("Start listening %s\n", *address)
+	return newServer(yandex, *address).ListenAndServe()
 }
 
-func NewServer(httpClient *http.Client, addr, apiUrl, apiKey string, folderId string) *http.Server {
+func newServer(yandex *YandexClient, addr string) *http.Server {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
-	handler := NewHandler(apiUrl, apiKey, httpClient)
+	handler := NewHandler(yandex)
 	r.Route("/", func(r chi.Router) {
 		r.HandleFunc("/", handler.Default)
 		r.Post("/", handler.Post)
 
 	})
-
 	return &http.Server{Addr: addr, Handler: r}
 }
 
-func NewHandler(apiUrl, apiKey string, httpClient *http.Client) *Handler {
-	return &Handler{apiUrl, apiKey, httpClient}
+func NewHandler(yandex *YandexClient) *Handler {
+	return &Handler{yandex: yandex}
 }
 
 type Handler struct {
-	apiUrl, apiKey string
-	httpClient     *http.Client
+	yandex *YandexClient
 }
 
 func (h *Handler) Default(response http.ResponseWriter, request *http.Request) {
@@ -175,44 +189,37 @@ func (h *Handler) Default(response http.ResponseWriter, request *http.Request) {
 }
 
 func (h *Handler) Post(response http.ResponseWriter, request *http.Request) {
-	var postErr string
-	if clientReq, err := http.NewRequest("POST", h.apiUrl, request.Body); err != nil {
-		logError(err)
-		postErr = "client-request: " + err.Error()
+	if body, err := h.translate(request); err != nil {
+		http.Error(response, err.Error(), http.StatusBadRequest)
 	} else {
-		clientReq.Header.Set("Authorization", "Bearer "+h.apiKey)
-		if clientResp, err := h.httpClient.Do(clientReq); err != nil {
+		logResponse(body)
+		cors(response)
+		response.WriteHeader(http.StatusOK)
+		if _, err := response.Write(body); err != nil {
 			logError(err)
-			postErr = "client-response: " + err.Error()
-		} else if bodyPayload, err := ioutil.ReadAll(clientResp.Body); err != nil {
-			logError(err)
-			postErr = "client-response-read: " + err.Error()
-		} else {
-			statusCode := clientResp.StatusCode
-			logResponse(statusCode, bodyPayload)
-			cors(response)
-			response.WriteHeader(statusCode)
-			if _, err := response.Write(bodyPayload); err != nil {
-				logError(err)
-				postErr = "response: " + err.Error()
-			} else {
-				return
-			}
+			http.Error(response, err.Error(), http.StatusBadRequest)
 		}
 	}
-	http.Error(response, postErr, http.StatusBadRequest)
+}
+
+func (h *Handler) translate(request *http.Request) ([]byte, error) {
+	body, err := ioutil.ReadAll(request.Body)
+	if err != nil {
+		return nil, fmt.Errorf("request read: %w", err)
+	}
+	payload := new(TranslateRequest)
+	if err = json.Unmarshal(body, request); err != nil {
+		return nil, fmt.Errorf("request unmarshal: %w", err)
+	}
+	respPayload, err := h.yandex.Translate(payload)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(respPayload)
 }
 
 func cors(w http.ResponseWriter) {
 	header := w.Header()
 	header.Set("Access-Control-Allow-Origin", "*")
 	header.Set("Access-Control-Allow-Headers", "Content-Type")
-}
-
-func logError(err error) {
-	log.Printf("ERROR %s", err.Error())
-}
-
-func logResponse(statusCode int, response []byte) {
-	log.Printf("%d: %s", statusCode, string(response))
 }
