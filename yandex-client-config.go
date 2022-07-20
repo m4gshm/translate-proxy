@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"io/ioutil"
 	"os"
@@ -12,10 +13,10 @@ import (
 )
 
 type Config struct {
-	FolderId        string
-	OAuthToken      string
-	IamToken        string
-	IamTokenExpired time.Time
+	FolderId       string
+	OAuthToken     string
+	IamToken       string
+	IamTokenExpire time.Time
 }
 
 func ReadConfig(file string) (*Config, error) {
@@ -33,9 +34,8 @@ func ReadConfig(file string) (*Config, error) {
 	return config, nil
 }
 
-func (config *Config) WriteConfig(file string) error {
+func WriteConfig(config *Config, file string) error {
 	logDebug("write config file %s", file)
-
 	if payload, err := yaml.Marshal(config); err != nil {
 		return err
 	} else if err := os.MkdirAll(path.Dir(file), os.ModePerm); err != nil {
@@ -45,7 +45,20 @@ func (config *Config) WriteConfig(file string) error {
 	}
 }
 
+func (config *Config) Store(file string) {
+	if len(file) == 0 {
+		return
+	} else if err := WriteConfig(config, file); err != nil {
+		logError(fmt.Errorf("wirte config file: %w", err))
+	}
+}
+
 func (config *Config) IsIamTokenExpired() bool {
 	now := time.Now()
-	return len(config.IamToken) == 0 || config.IamTokenExpired.Before(now)
+	return len(config.IamToken) == 0 || config.IamTokenExpire.Before(now)
+}
+
+func (config *Config) UpdateIamToken(token string, expire time.Time) {
+	config.IamToken = token
+	config.IamTokenExpire = expire
 }

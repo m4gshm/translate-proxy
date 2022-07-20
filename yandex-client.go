@@ -23,15 +23,16 @@ func (e *HttpStatusError) Error() string {
 
 var _ error = (*HttpStatusError)(nil)
 
-func NewYandexClient(config *Config, client *http.Client, iamTokenUrl, cloudsUrl, foldersUrl, translateUrl string) (*YandexClient, error) {
+func NewYandexClient(configFile string, config *Config, client *http.Client, iamTokenUrl, cloudsUrl, foldersUrl, translateUrl string) (*YandexClient, error) {
 	fUrl, err := url.Parse(foldersUrl)
 	if err != nil {
 		return nil, fmt.Errorf("invalid folders URL %s; %w", foldersUrl, err)
 	}
-	return &YandexClient{Config: config, client: client, iamTokenUrl: iamTokenUrl, cloudsUrl: cloudsUrl, foldersUrl: *fUrl, translateUrl: translateUrl}, nil
+	return &YandexClient{configFile: configFile, Config: config, client: client, iamTokenUrl: iamTokenUrl, cloudsUrl: cloudsUrl, foldersUrl: *fUrl, translateUrl: translateUrl}, nil
 }
 
 type YandexClient struct {
+	configFile   string
 	Config       *Config
 	client       *http.Client
 	iamTokenUrl  string
@@ -75,7 +76,7 @@ func (c *YandexClient) CreateCloudFolder(cloudId, name string) (*CreateFolderRes
 	respPayload := new(CreateFolderResponse)
 	if iamToken, err := c.GetIamToken(); err != nil {
 		return nil, err
-	} else if err := doPostRequest("create folder", c.client, f.String(), iamToken, reqPayload, respPayload); err != nil {
+	} else if err := doPostRequest("create folder", c.client, f.String(), iamToken, reqPayload, respPayload, false); err != nil {
 		return nil, err
 	} else {
 		return respPayload, nil
@@ -90,7 +91,7 @@ func (c *YandexClient) RequestIamToken() (*IamTokenResponse, error) {
 		return nil, fmt.Errorf("%s request marshal %+v: %w", method, iamTokenRequest, err)
 	} else if req, err := http.NewRequest(http.MethodPost, c.iamTokenUrl, bytes.NewReader(reqBody)); err != nil {
 		return nil, fmt.Errorf("%s request %w", method, err)
-	} else if err := doRequest(method, c.client, req, respPayload); err != nil {
+	} else if err := doRequest(method, c.client, req, respPayload, false); err != nil {
 		return nil, err
 	}
 	fmt.Printf("requested Yandex API IAM token %s, expired at %s\n", respPayload.IamToken, respPayload.ExpiresAt)
@@ -104,7 +105,7 @@ func (c *YandexClient) Translate(request *TranslateRequest) (*TranslateResponse,
 	resp := new(TranslateResponse)
 	if iamToken, err := c.GetIamToken(); err != nil {
 		return nil, err
-	} else if err := doPostRequest("translate", c.client, c.translateUrl, iamToken, request, resp); err != nil {
+	} else if err := doPostRequest("translate", c.client, c.translateUrl, iamToken, request, resp, true); err != nil {
 		return nil, err
 	}
 	return resp, nil
@@ -119,35 +120,36 @@ func (c *YandexClient) GetIamToken() (string, error) {
 		}
 		iamToken = tokenResp.IamToken
 		//todo: need lock
-		c.Config.IamToken = iamToken
-		c.Config.IamTokenExpired = tokenResp.ExpiresAt
-
+		c.Config.UpdateIamToken(iamToken, tokenResp.ExpiresAt)
 	}
 	return iamToken, nil
 }
 
 func doGetRequest[T any](methodName string, client *http.Client, url string, iamToken string, resp *T) error {
-	return doAuthRequest(methodName, client, http.MethodGet, url, iamToken, nil, resp)
+	return doAuthRequest(methodName, client, http.MethodGet, url, iamToken, nil, resp, false)
 }
 
-func doPostRequest[Req, Resp any](methodName string, client *http.Client, url string, iamToken string, req *Req, resp *Resp) error {
+func doPostRequest[Req, Resp any](methodName string, client *http.Client, url string, iamToken string, req *Req, resp *Resp, logging bool) error {
 	requestBody, err := json.Marshal(req)
+	if logging {
+		logPayload("->", requestBody)
+	}
 	if err != nil {
 		return fmt.Errorf("request marshal %+v: %w", req, err)
 	}
-	return doAuthRequest(methodName, client, http.MethodPost, url, iamToken, bytes.NewReader(requestBody), resp)
+	return doAuthRequest(methodName, client, http.MethodPost, url, iamToken, bytes.NewReader(requestBody), resp, logging)
 }
 
-func doAuthRequest[T any](callName string, client *http.Client, httpMethod string, url string, iamToken string, reqBody io.Reader, respReceiver *T) error {
+func doAuthRequest[T any](callName string, client *http.Client, httpMethod string, url string, iamToken string, reqBody io.Reader, respReceiver *T, logging bool) error {
 	if req, err := http.NewRequest(httpMethod, url, reqBody); err != nil {
 		return fmt.Errorf("%s %s request: %w", callName, httpMethod, err)
 	} else {
 		req.Header.Set("Authorization", "Bearer "+iamToken)
-		return doRequest(callName, client, req, respReceiver)
+		return doRequest(callName, client, req, respReceiver, logging)
 	}
 }
 
-func doRequest[T any](methodName string, client *http.Client, req *http.Request, respPayload *T) error {
+func doRequest[T any](methodName string, client *http.Client, req *http.Request, respPayload *T, logging bool) error {
 	if resp, err := client.Do(req); err != nil {
 		return fmt.Errorf(methodName+" response: %w", err)
 	} else if resp.StatusCode != 200 {
@@ -160,6 +162,9 @@ func doRequest[T any](methodName string, client *http.Client, req *http.Request,
 	} else if err = json.Unmarshal(bodyRawPayload, respPayload); err != nil {
 		return fmt.Errorf(methodName+" response payload unmarshal %s: %w", string(bodyRawPayload), err)
 	} else {
+		if logging {
+			logPayload("<-", bodyRawPayload)
+		}
 		return nil
 	}
 }

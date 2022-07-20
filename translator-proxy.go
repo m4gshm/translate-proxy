@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/m4gshm/gollections/slice"
 )
 
 const (
@@ -23,6 +24,7 @@ const (
 var (
 	configFile    = flag.String("config-file", "", "Configuration file")
 	newFolderName = flag.String("new-folder-name", "default", "New cloud folder name")
+	allFolders    = flag.Bool("all-folders", false, "Don't explore only active cloud folders")
 	oAuthTokenUrl = flag.String("oauth-token-url", "https://oauth.yandex.ru/authorize/?response_type=token&client_id=1a6990aa636648e9b2ef855fa7bec2fb", "OAuth token URL")
 	iamTokenUrl   = flag.String("iam-token-url", "https://iam.api.cloud.yandex.net/iam/v1/tokens", "IAM token URL")
 	cloudsUrl     = flag.String("clouds-url", "https://resource-manager.api.cloud.yandex.net/resource-manager/v1/clouds", "Yandex Clouds URL")
@@ -64,7 +66,7 @@ func run() error {
 	}
 	loadedConfig := *config
 
-	yandex, err := NewYandexClient(config, &http.Client{}, *iamTokenUrl, *cloudsUrl, *foldersUrl, *translateUrl)
+	yandex, err := NewYandexClient(*configFile, config, &http.Client{}, *iamTokenUrl, *cloudsUrl, *foldersUrl, *translateUrl)
 	checkedOAuth := false
 	for !checkedOAuth {
 		if len(config.OAuthToken) == 0 {
@@ -133,26 +135,33 @@ func run() error {
 			} else {
 				return fmt.Errorf("create cloud folder %s error code %s, %s, details = %s", *newFolderName, resp.Error.Code, resp.Error.Message, resp.Error.Details)
 			}
-		} else if len(folders.Folders) == 1 {
-			folder := folders.Folders[0]
-			fmt.Printf("folder %s (id = %s, status = %s) automatically selected\n", folder.Name, folder.ID, folder.Status)
-			folderId = folder.ID
 		} else {
-			fmt.Print("Please choose a folder to use:")
-			for i, folder := range folders.Folders {
-				n := i + 1
-				fmt.Printf("[%d] folder%d (id = %s, name = %s, status = %s)\n", n, n, folder.ID, folder.Name, folder.Status)
+			selectedFolders := folders.Folders
+			onlyActiveFolders := !*allFolders
+			if onlyActiveFolders {
+				selectedFolders = slice.Filter(selectedFolders, func(f Folder) bool { return f.Status == "ACTIVE" })
 			}
-			fmt.Print("Please enter your numeric choice: ")
-			var folderNum int
-			fmt.Scanln(&folderNum)
-			for {
-				if folderNum > 0 && folderNum <= len(folders.Folders) {
-					folder := folders.Folders[folderNum-1]
-					folderId = folder.ID
-					break
-				} else {
-					fmt.Printf("Entered invalid folder number, must be in the range  %d to %d\n", 1, len(folders.Folders))
+			if len(selectedFolders) == 1 {
+				folder := selectedFolders[0]
+				fmt.Printf("folder %s (id = %s, status = %s) automatically selected\n", folder.Name, folder.ID, folder.Status)
+				folderId = folder.ID
+			} else {
+				fmt.Print("Please choose a folder to use:")
+				for i, folder := range selectedFolders {
+					n := i + 1
+					fmt.Printf("[%d] folder%d (id = %s, name = %s, status = %s)\n", n, n, folder.ID, folder.Name, folder.Status)
+				}
+				fmt.Print("Please enter your numeric choice: ")
+				var folderNum int
+				fmt.Scanln(&folderNum)
+				for {
+					if folderNum > 0 && folderNum <= len(selectedFolders) {
+						folder := selectedFolders[folderNum-1]
+						folderId = folder.ID
+						break
+					} else {
+						fmt.Printf("Entered invalid folder number, must be in the range  %d to %d\n", 1, len(selectedFolders))
+					}
 				}
 			}
 		}
@@ -160,9 +169,14 @@ func run() error {
 	}
 
 	if writeableConfig && loadedConfig != *config {
-		if err := config.WriteConfig(*configFile); err != nil {
-			logError(fmt.Errorf("wirte config file: %w", err))
-		}
+		storedConfig := *config
+		storedConfig.Store(*configFile)
+		defer func() {
+			yandexConfig := *yandex.Config
+			if storedConfig != yandexConfig {
+				yandexConfig.Store(*configFile)
+			}
+		}()
 	}
 
 	// yandex.Config = config
@@ -199,7 +213,6 @@ func (h *Handler) Post(response http.ResponseWriter, request *http.Request) {
 	if body, err := h.translate(request); err != nil {
 		http.Error(response, err.Error(), http.StatusBadRequest)
 	} else {
-		logPayload("<-", body)
 		cors(response)
 		response.WriteHeader(http.StatusOK)
 		if _, err := response.Write(body); err != nil {
@@ -214,13 +227,15 @@ func (h *Handler) translate(request *http.Request) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("request read: %w", err)
 	}
-	logPayload("->", body)
+
 	payload := new(TranslateRequest)
 	if err = json.Unmarshal(body, payload); err != nil {
 		return nil, fmt.Errorf("request unmarshal: %w", err)
 	}
+
 	payload.SourceLanguageCode = extractLanguage(payload.SourceLanguageCode)
 	payload.TargetLanguageCode = extractLanguage(payload.TargetLanguageCode)
+
 	respPayload, err := h.yandex.Translate(payload)
 	if err != nil {
 		return nil, err
