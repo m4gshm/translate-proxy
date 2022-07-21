@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -23,27 +24,28 @@ func (e *HttpStatusError) Error() string {
 
 var _ error = (*HttpStatusError)(nil)
 
-func NewYandexClient(configFile string, config *Config, client *http.Client, iamTokenUrl, cloudsUrl, foldersUrl, translateUrl string) (*YandexClient, error) {
+func NewYandexClient(configFile string, writeableConfig bool, config *Config, client *http.Client, iamTokenUrl, cloudsUrl, foldersUrl, translateUrl string) (*YandexClient, error) {
 	fUrl, err := url.Parse(foldersUrl)
 	if err != nil {
 		return nil, fmt.Errorf("invalid folders URL %s; %w", foldersUrl, err)
 	}
-	return &YandexClient{configFile: configFile, Config: config, client: client, iamTokenUrl: iamTokenUrl, cloudsUrl: cloudsUrl, foldersUrl: *fUrl, translateUrl: translateUrl}, nil
+	return &YandexClient{configFile: configFile, writeableConfig: writeableConfig, Config: config, client: client, iamTokenUrl: iamTokenUrl, cloudsUrl: cloudsUrl, foldersUrl: *fUrl, translateUrl: translateUrl}, nil
 }
 
 type YandexClient struct {
-	configFile   string
-	Config       *Config
-	client       *http.Client
-	iamTokenUrl  string
-	cloudsUrl    string
-	foldersUrl   url.URL
-	translateUrl string
+	configFile      string
+	writeableConfig bool
+	Config          *Config
+	client          *http.Client
+	iamTokenUrl     string
+	cloudsUrl       string
+	foldersUrl      url.URL
+	translateUrl    string
 }
 
 func (c *YandexClient) RequestClouds() (*CloudsResponse, error) {
 	respPayload := new(CloudsResponse)
-	if iamToken, err := c.GetIamToken(); err != nil {
+	if iamToken, err := c.getStoreIamToken(); err != nil {
 		return nil, err
 	} else if err := doGetRequest("clouds", c.client, c.cloudsUrl, iamToken, respPayload); err != nil {
 		return nil, err
@@ -58,7 +60,7 @@ func (c *YandexClient) RequestCloudFolders(cloudId string) (*FoldersResponse, er
 	q.Set("cloudId", cloudId)
 	f.RawQuery = q.Encode()
 	respPayload := new(FoldersResponse)
-	if iamToken, err := c.GetIamToken(); err != nil {
+	if iamToken, err := c.getStoreIamToken(); err != nil {
 		return nil, err
 	} else if err := doGetRequest("cloud folders", c.client, f.String(), iamToken, respPayload); err != nil {
 		return nil, err
@@ -74,7 +76,7 @@ func (c *YandexClient) CreateCloudFolder(cloudId, name string) (*CreateFolderRes
 		Name:    name,
 	}
 	respPayload := new(CreateFolderResponse)
-	if iamToken, err := c.GetIamToken(); err != nil {
+	if iamToken, err := c.getStoreIamToken(); err != nil {
 		return nil, err
 	} else if err := doPostRequest("create folder", c.client, f.String(), iamToken, reqPayload, respPayload, false); err != nil {
 		return nil, err
@@ -103,24 +105,49 @@ func (c *YandexClient) Translate(request *TranslateRequest) (*TranslateResponse,
 		request.FolderID = c.Config.FolderId
 	}
 	resp := new(TranslateResponse)
-	if iamToken, err := c.GetIamToken(); err != nil {
+	if iamToken, err := c.getStoreIamToken(); err != nil {
 		return nil, err
 	} else if err := doPostRequest("translate", c.client, c.translateUrl, iamToken, request, resp, true); err != nil {
-		return nil, err
+		var statusErr *HttpStatusError
+		if errors.As(err, &statusErr) && statusErr.Code == 401 {
+			logDebug("unauthorized translate request, trying to refresh token, message: %s", statusErr.Error())
+			if iamToken, err = c.refreshIamToken(c.writeableConfig); err != nil {
+				return nil, err
+			} else if err := doPostRequest("translate", c.client, c.translateUrl, iamToken, request, resp, true); err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, err
+		}
 	}
 	return resp, nil
 }
 
 func (c *YandexClient) GetIamToken() (string, error) {
-	iamToken := c.Config.IamToken
+	return c.getIamToken(false)
+}
+
+func (c *YandexClient) getStoreIamToken() (string, error) {
+	return c.getIamToken(c.writeableConfig)
+}
+
+func (c *YandexClient) getIamToken(store bool) (string, error) {
 	if c.Config.IsIamTokenExpired() {
-		tokenResp, err := c.RequestIamToken()
-		if err != nil {
-			return "", fmt.Errorf("request IAM token: %w", err)
-		}
-		iamToken = tokenResp.IamToken
-		//todo: need lock
-		c.Config.UpdateIamToken(iamToken, tokenResp.ExpiresAt)
+		return c.refreshIamToken(store)
+	}
+	return c.Config.IamToken, nil
+}
+
+func (c *YandexClient) refreshIamToken(store bool) (string, error) {
+	tokenResp, err := c.RequestIamToken()
+	if err != nil {
+		return "", fmt.Errorf("request IAM token: %w", err)
+	}
+	iamToken := tokenResp.IamToken
+	//todo: need lock
+	c.Config.UpdateIamToken(iamToken, tokenResp.ExpiresAt)
+	if store {
+		c.Config.Store(c.configFile)
 	}
 	return iamToken, nil
 }

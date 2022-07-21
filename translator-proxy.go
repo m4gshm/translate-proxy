@@ -64,9 +64,8 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("read config file: %w", err)
 	}
-	loadedConfig := *config
 
-	yandex, err := NewYandexClient(*configFile, config, &http.Client{}, *iamTokenUrl, *cloudsUrl, *foldersUrl, *translateUrl)
+	yandex, err := NewYandexClient(*configFile, writeableConfig, config, &http.Client{}, *iamTokenUrl, *cloudsUrl, *foldersUrl, *translateUrl)
 	checkedOAuth := false
 	for !checkedOAuth {
 		if len(config.OAuthToken) == 0 {
@@ -168,17 +167,6 @@ func run() error {
 		config.FolderId = folderId
 	}
 
-	if writeableConfig && loadedConfig != *config {
-		storedConfig := *config
-		storedConfig.Store(*configFile)
-		defer func() {
-			yandexConfig := *yandex.Config
-			if storedConfig != yandexConfig {
-				yandexConfig.Store(*configFile)
-			}
-		}()
-	}
-
 	// yandex.Config = config
 	fmt.Printf("Start listening %s\n", *address)
 	return newServer(yandex, *address).ListenAndServe()
@@ -211,6 +199,7 @@ func (h *Handler) Default(response http.ResponseWriter, request *http.Request) {
 
 func (h *Handler) Post(response http.ResponseWriter, request *http.Request) {
 	if body, err := h.translate(request); err != nil {
+		logError(err)
 		http.Error(response, err.Error(), http.StatusBadRequest)
 	} else {
 		cors(response)
