@@ -1,5 +1,5 @@
 .PHONY: all
-all: build test
+all: build lint test
 
 .PHONY: test
 test:

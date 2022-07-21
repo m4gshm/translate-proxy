@@ -201,7 +201,9 @@ func readBody(resp *http.Response) ([]byte, error) {
 	if respBody == nil {
 		return nil, nil
 	}
-	defer respBody.Close()
+	defer func() {
+		_ = respBody.Close()
+	}()
 	payload, err := ioutil.ReadAll(respBody)
 	if err != nil {
 		return nil, err

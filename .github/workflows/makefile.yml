@@ -4,12 +4,14 @@ on:
   push:
     branches:
       - main
+      - master
       - "releases/**"
       - "feature/**"
       - "bugfix/**"
   pull_request:
     branches:
       - main
+      - master
       - "releases/**"
       - "feature/**"
       - "bugfix/**"
@@ -23,5 +25,5 @@ jobs:
       - name: run tests
         uses: docker://golang:1.18.0-bullseye
         with:
-          args: make build lint test
+          args: make lint buildGithub
 

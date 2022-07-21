@@ -73,7 +73,9 @@ func run() error {
 			fmt.Println("Please go to", *oAuthTokenUrl)
 			fmt.Println("in order to obtain OAuth token.")
 			fmt.Print("Please enter OAuth token: ")
-			fmt.Scanln(&config.OAuthToken)
+			if _, err := fmt.Scanln(&config.OAuthToken); err != nil {
+				return err
+			}
 		}
 
 		if err != nil {
@@ -111,7 +113,9 @@ func run() error {
 			}
 			fmt.Print("Please enter your numeric choice: ")
 			var cloudNum int
-			fmt.Scanln(&cloudNum)
+			if _, err := fmt.Scanln(&cloudNum); err != nil {
+				return err
+			}
 			for {
 				if cloudNum > 0 && cloudNum <= len(clouds.Clouds) {
 					cloud := clouds.Clouds[cloudNum-1]
@@ -153,7 +157,9 @@ func run() error {
 				}
 				fmt.Print("Please enter your numeric choice: ")
 				var folderNum int
-				fmt.Scanln(&folderNum)
+				if _, err := fmt.Scanln(&folderNum); err != nil {
+					return err
+				}
 				for {
 					if folderNum > 0 && folderNum <= len(selectedFolders) {
 						folder := selectedFolders[folderNum-1]
