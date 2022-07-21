@@ -16,6 +16,14 @@ ifneq ($(OS),Windows_NT)
 	GOOS=windows GOARCH=amd64 go build ./...
 endif
 
+buildGithub:
+	$(info #Building all Platforms...)
+	go clean -cache
+	GOOS=windows GOARCH=amd64 go build -o translator-proxy.exe ./...
+	GOOS=linux GOARCH=amd64 go build -o translator-proxy-linux ./...
+	GOOS=darwin GOARCH=amd64 go build -o translator-proxy-mac ./...
+
+
 .PHONY: lint
 lint:
 	$(info #Lints...)
