@@ -13,7 +13,7 @@ import (
 )
 
 type Config struct {
-	FolderId       string
+	FolderID       string
 	OAuthToken     string
 	IamToken       string
 	IamTokenExpire time.Time

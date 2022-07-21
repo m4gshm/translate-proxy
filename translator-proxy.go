@@ -25,11 +25,11 @@ var (
 	configFile    = flag.String("config-file", "", "Configuration file")
 	newFolderName = flag.String("new-folder-name", "default", "New cloud folder name")
 	allFolders    = flag.Bool("all-folders", false, "Don't explore only active cloud folders")
-	oAuthTokenUrl = flag.String("oauth-token-url", "https://oauth.yandex.ru/authorize/?response_type=token&client_id=1a6990aa636648e9b2ef855fa7bec2fb", "OAuth token URL")
-	iamTokenUrl   = flag.String("iam-token-url", "https://iam.api.cloud.yandex.net/iam/v1/tokens", "IAM token URL")
-	cloudsUrl     = flag.String("clouds-url", "https://resource-manager.api.cloud.yandex.net/resource-manager/v1/clouds", "Yandex Clouds URL")
-	foldersUrl    = flag.String("cloud-folders-url", "https://resource-manager.api.cloud.yandex.net/resource-manager/v1/folders", "Yandex Cloud folders URL")
-	translateUrl  = flag.String("translate-url", "https://translate.api.cloud.yandex.net/translate/v2/translate", "Yandex Translate API URL")
+	oAuthTokenURL = flag.String("oauth-token-url", "https://oauth.yandex.ru/authorize/?response_type=token&client_id=1a6990aa636648e9b2ef855fa7bec2fb", "OAuth token URL")
+	iamTokenURL   = flag.String("iam-token-url", "https://iam.api.cloud.yandex.net/iam/v1/tokens", "IAM token URL")
+	cloudsURL     = flag.String("clouds-url", "https://resource-manager.api.cloud.yandex.net/resource-manager/v1/clouds", "Yandex Clouds URL")
+	foldersURL    = flag.String("cloud-folders-url", "https://resource-manager.api.cloud.yandex.net/resource-manager/v1/folders", "Yandex Cloud folders URL")
+	translateURL  = flag.String("translate-url", "https://translate.api.cloud.yandex.net/translate/v2/translate", "Yandex Translate API URL")
 	address       = flag.String("address", "localhost:8080", "http server address")
 )
 
@@ -52,12 +52,12 @@ func run() error {
 
 	writeableConfig := false
 	if configFile == nil || len(*configFile) == 0 {
-		if homeDir, err := os.UserHomeDir(); err != nil {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
 			return fmt.Errorf("home dir: %w", err)
-		} else {
-			*configFile = path.Join(homeDir, ".config", name, "config.yaml")
-			writeableConfig = true
 		}
+		*configFile = path.Join(homeDir, ".config", name, "config.yaml")
+		writeableConfig = true
 	}
 
 	config, err := ReadConfig(*configFile)
@@ -66,11 +66,11 @@ func run() error {
 	}
 	loadedConfig := *config
 
-	yandex, err := NewYandexClient(*configFile, writeableConfig, config, &http.Client{}, *iamTokenUrl, *cloudsUrl, *foldersUrl, *translateUrl)
+	yandex, err := NewYandexClient(*configFile, writeableConfig, config, &http.Client{}, *iamTokenURL, *cloudsURL, *foldersURL, *translateURL)
 	checkedOAuth := false
 	for !checkedOAuth {
 		if len(config.OAuthToken) == 0 {
-			fmt.Println("Please go to", *oAuthTokenUrl)
+			fmt.Println("Please go to", *oAuthTokenURL)
 			fmt.Println("in order to obtain OAuth token.")
 			fmt.Print("Please enter OAuth token: ")
 			if _, err := fmt.Scanln(&config.OAuthToken); err != nil {
@@ -84,7 +84,7 @@ func run() error {
 
 		//requests iam token for oauth checking
 		if _, err := yandex.GetIamToken(); err != nil {
-			var statusErr *HttpStatusError
+			var statusErr *HTTPStatusError
 			if errors.As(err, &statusErr) && statusErr.Code == 401 {
 				config.OAuthToken = ""
 			} else {
@@ -95,8 +95,8 @@ func run() error {
 		}
 	}
 
-	if len(config.FolderId) == 0 {
-		var cloudId string
+	if len(config.FolderID) == 0 {
+		var cloudID string
 		if clouds, err := yandex.RequestClouds(); err != nil {
 			return err
 		} else if clouds == nil || len(clouds.Clouds) == 0 {
@@ -104,7 +104,7 @@ func run() error {
 		} else if len(clouds.Clouds) == 1 {
 			cloud := clouds.Clouds[0]
 			fmt.Printf("cloud %s (id = %s) automatically selected\n", cloud.Name, cloud.ID)
-			cloudId = cloud.ID
+			cloudID = cloud.ID
 		} else {
 			fmt.Println("Please select cloud to use:")
 			for i, cloud := range clouds.Clouds {
@@ -119,7 +119,7 @@ func run() error {
 			for {
 				if cloudNum > 0 && cloudNum <= len(clouds.Clouds) {
 					cloud := clouds.Clouds[cloudNum-1]
-					cloudId = cloud.ID
+					cloudID = cloud.ID
 					break
 				} else {
 					fmt.Printf("Entered invalid cloud number, must be in the range  %d to %d\n", 1, len(clouds.Clouds))
@@ -127,15 +127,15 @@ func run() error {
 			}
 		}
 
-		var folderId string
-		if folders, err := yandex.RequestCloudFolders(cloudId); err != nil {
+		var folderID string
+		if folders, err := yandex.RequestCloudFolders(cloudID); err != nil {
 			return err
 		} else if folders == nil || len(folders.Folders) == 0 {
-			if resp, err := yandex.CreateCloudFolder(cloudId, *newFolderName); err != nil {
+			if resp, err := yandex.CreateCloudFolder(cloudID, *newFolderName); err != nil {
 				return fmt.Errorf("create cloud folder %s: %w", *newFolderName, err)
 			} else if resp.Done {
 				fmt.Printf("folder %s (id = %s) automatically created\n", *newFolderName, resp.ID)
-				folderId = resp.ID
+				folderID = resp.ID
 			} else {
 				return fmt.Errorf("create cloud folder %s error code %s, %s, details = %s", *newFolderName, resp.Error.Code, resp.Error.Message, resp.Error.Details)
 			}
@@ -148,7 +148,7 @@ func run() error {
 			if len(selectedFolders) == 1 {
 				folder := selectedFolders[0]
 				fmt.Printf("folder %s (id = %s, status = %s) automatically selected\n", folder.Name, folder.ID, folder.Status)
-				folderId = folder.ID
+				folderID = folder.ID
 			} else {
 				fmt.Print("Please choose a folder to use:")
 				for i, folder := range selectedFolders {
@@ -163,7 +163,7 @@ func run() error {
 				for {
 					if folderNum > 0 && folderNum <= len(selectedFolders) {
 						folder := selectedFolders[folderNum-1]
-						folderId = folder.ID
+						folderID = folder.ID
 						break
 					} else {
 						fmt.Printf("Entered invalid folder number, must be in the range  %d to %d\n", 1, len(selectedFolders))
@@ -171,7 +171,7 @@ func run() error {
 				}
 			}
 		}
-		config.FolderId = folderId
+		config.FolderID = folderID
 	}
 
 	if writeableConfig && loadedConfig != *config {
