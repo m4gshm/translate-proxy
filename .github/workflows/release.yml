@@ -12,7 +12,7 @@ jobs:
       - name: build artifacts
         uses: docker://golang:1.18.0-bullseye
         with:
-          args: buildbin
+          args: make buildbin
       - name: upload the artifacts
         uses: skx/github-action-publish-binaries@master
         env:
