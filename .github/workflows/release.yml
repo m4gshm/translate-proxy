@@ -1,7 +1,7 @@
 name: Handle Release
 on:
   release:
-    types: [created]
+    types: [created,edited]
 jobs:
   generate:
     name: create release-artifacts

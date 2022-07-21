@@ -16,6 +16,8 @@ ifneq ($(OS),Windows_NT)
 	GOOS=windows GOARCH=amd64 go build ./...
 endif
 
+
+.PHONY: buildbin
 buildbin:
 	$(info #Building all Platforms...)
 	go clean -cache
