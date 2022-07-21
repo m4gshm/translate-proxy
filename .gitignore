@@ -1,4 +1,5 @@
 .vscode/*.log
+bin/
 translator-proxy.exe
 translator-proxy
 translator-proxy-mac

@@ -1,0 +1,21 @@
+name: Handle Release
+on:
+  release:
+    types: [created]
+jobs:
+  generate:
+    name: create release-artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v3
+      - name: build artifacts
+        uses: docker://golang:1.18.0-bullseye
+        with:
+          args: buildbin
+      - name: upload the artifacts
+        uses: skx/github-action-publish-binaries@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: 'bin/*'
