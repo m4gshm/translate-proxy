@@ -64,6 +64,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("read config file: %w", err)
 	}
+	loadedConfig := *config
 
 	yandex, err := NewYandexClient(*configFile, writeableConfig, config, &http.Client{}, *iamTokenUrl, *cloudsUrl, *foldersUrl, *translateUrl)
 	checkedOAuth := false
@@ -165,6 +166,11 @@ func run() error {
 			}
 		}
 		config.FolderId = folderId
+	}
+
+	if writeableConfig && loadedConfig != *config {
+		storedConfig := *config
+		storedConfig.Store(*configFile)
 	}
 
 	// yandex.Config = config
