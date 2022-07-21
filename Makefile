@@ -12,9 +12,17 @@ build:
 	$(info #Building...)
 	go clean -cache
 	go build ./...
-	ifneq ($(OS),Windows_NT)
+ifneq ($(OS),Windows_NT)
 	GOOS=windows GOARCH=amd64 go build ./...
-	endif
+endif
+
+buildGithub:
+	$(info #Building all Platforms...)
+	go clean -cache
+	GOOS=windows GOARCH=amd64 go build -o translator-proxy.exe ./...
+	GOOS=linux GOARCH=amd64 go build -o translator-proxy-linux ./...
+	GOOS=darwin GOARCH=amd64 go build -o translator-proxy-mac ./...
+
 
 .PHONY: lint
 lint:
@@ -30,3 +38,7 @@ lint:
 	nakedret ./...
 	go install golang.org/x/lint/golint@latest
 	golint ./...
+
+.PHONY: debug
+debug: 	
+	dlv debug --headless --listen=:2345 --log --api-version=2
