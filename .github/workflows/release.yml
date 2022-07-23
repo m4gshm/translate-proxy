@@ -15,13 +15,13 @@ jobs:
           args: make buildbin
       - uses: montudor/action-zip@v1
         with:
-          args: zip bin/translator-proxy-win.zip bin/translator-proxy.exe
+          args: zip -j bin/translator-proxy-win.zip bin/translator-proxy.exe
       - uses: montudor/action-zip@v1
         with:
-          args: zip bin/translator-proxy-linux.zip bin/translator-proxy-linux
+          args: zip -j bin/translator-proxy-linux.zip bin/translator-proxy-linux
       - uses: montudor/action-zip@v1
         with:
-          args: zip bin/translator-proxy-mac.zip bin/translator-proxy-mac
+          args: zip -j bin/translator-proxy-mac.zip bin/translator-proxy-mac
       - name: upload the artifacts
         uses: skx/github-action-publish-binaries@master
         env:
