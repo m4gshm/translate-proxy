@@ -25,15 +25,6 @@ jobs:
       - name: build
         uses: docker://golang:1.18.0-bullseye
         with:
-          args: make lint buildbin
-      - uses: montudor/action-zip@v1
-        with:
-          args: zip bin/translator-proxy-win.zip bin/translator-proxy.exe
-      - uses: montudor/action-zip@v1
-        with:
-          args: zip bin/translator-proxy-linux.zip bin/translator-proxy-linux
-      - uses: montudor/action-zip@v1
-        with:
-          args: zip bin/translator-proxy-mac.zip bin/translator-proxy-mac          
+          args: make lint build
             
           
