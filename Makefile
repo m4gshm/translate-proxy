@@ -16,7 +16,6 @@ ifneq ($(OS),Windows_NT)
 	GOOS=windows GOARCH=amd64 go build ./...
 endif
 
-
 .PHONY: buildbin
 buildbin:
 	$(info #Building all Platforms...)
@@ -25,10 +24,17 @@ buildbin:
 	GOOS=linux GOARCH=amd64 go build -o bin/translator-proxy-linux ./...
 	GOOS=darwin GOARCH=amd64 go build -o bin/translator-proxy-mac ./...
 
+.PHONY: zipbin
+zipbin: buildbin
+	$(info #Zip all Platforms...)
+	zip bin/translator-proxy-win.zip bin/translator-proxy.exe
+	zip bin/translator-proxy-linux.zip bin/translator-proxy-linux
+	zip bin/translator-proxy-mac.zip bin/translator-proxy-mac
 
 .PHONY: lint
 lint:
 	$(info #Lints...)
+	echo ${PATH}
 	go install golang.org/x/tools/cmd/goimports@latest
 	goimports -w .
 	# go vet ./...

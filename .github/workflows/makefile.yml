@@ -22,8 +22,9 @@ jobs:
     steps:
       - name: checkout
         uses: actions/checkout@v3
-      - name: run tests
+      - name: build
         uses: docker://golang:1.18.0-bullseye
         with:
           args: make lint build
+            
           

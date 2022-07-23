@@ -12,10 +12,10 @@ jobs:
       - name: build artifacts
         uses: docker://golang:1.18.0-bullseye
         with:
-          args: make buildbin
+          args: make zipbin
       - name: upload the artifacts
         uses: skx/github-action-publish-binaries@master
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          args: 'bin/*'
+          args: 'bin/*.zip'
