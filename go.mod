@@ -1,4 +1,4 @@
-module github.com/m4gshm/translator-proxy
+module github.com/m4gshm/translate-proxy
 
 go 1.18
 
