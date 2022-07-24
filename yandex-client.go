@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"path"
 	"time"
 )
 
@@ -43,7 +44,7 @@ type YandexClient struct {
 	translateURL    string
 }
 
-func (c *YandexClient) RequestClouds() (*CloudsResponse, error) {
+func (c *YandexClient) GetClouds() (*CloudsResponse, error) {
 	respPayload := new(CloudsResponse)
 	if iamToken, err := c.getStoreIamToken(); err != nil {
 		return nil, err
@@ -54,10 +55,10 @@ func (c *YandexClient) RequestClouds() (*CloudsResponse, error) {
 	}
 }
 
-func (c *YandexClient) RequestCloudFolders(cloudID string) (*FoldersResponse, error) {
+func (c *YandexClient) GetCloudFolders(cloudID string) (*FoldersResponse, error) {
 	f := c.foldersURL
 	q := f.Query()
-	q.Set("cloudID", cloudID)
+	q.Set("cloudId", cloudID)
 	f.RawQuery = q.Encode()
 	respPayload := new(FoldersResponse)
 	if iamToken, err := c.getStoreIamToken(); err != nil {
@@ -72,13 +73,27 @@ func (c *YandexClient) RequestCloudFolders(cloudID string) (*FoldersResponse, er
 func (c *YandexClient) CreateCloudFolder(cloudID, name string) (*CreateFolderResponse, error) {
 	f := c.foldersURL
 	reqPayload := &CreateFolderRequest{
-		cloudID: cloudID,
+		CloudID: cloudID,
 		Name:    name,
 	}
 	respPayload := new(CreateFolderResponse)
 	if iamToken, err := c.getStoreIamToken(); err != nil {
 		return nil, err
 	} else if err := doPostRequest("create folder", c.client, f.String(), iamToken, reqPayload, respPayload, false); err != nil {
+		return nil, err
+	} else {
+		return respPayload, nil
+	}
+}
+
+func (c *YandexClient) GetCloudFolder(folderID string) (*GetFolderResponse, error) {
+	f := c.foldersURL
+	f.Path = path.Join(f.Path, folderID)
+
+	respPayload := new(GetFolderResponse)
+	if iamToken, err := c.getStoreIamToken(); err != nil {
+		return nil, err
+	} else if err := doGetRequest("create folder", c.client, f.String(), iamToken, respPayload); err != nil {
 		return nil, err
 	} else {
 		return respPayload, nil
@@ -227,7 +242,7 @@ type FoldersResponse struct {
 
 type Folder struct {
 	ID          string `json:"id"`
-	cloudID     string `json:"cloudID"`
+	CloudID     string `json:"cloudId"`
 	CreatedAt   string `json:"createdAt"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
@@ -236,10 +251,10 @@ type Folder struct {
 }
 
 type CreateFolderRequest struct {
-	cloudID     string `json:"cloudID"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Labels      string `json:"labels"`
+	CloudID     string `json:"cloudId,omitempty"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	Labels      string `json:"labels,omitempty"`
 }
 
 type CreateFolderResponse struct {
@@ -249,13 +264,20 @@ type CreateFolderResponse struct {
 	CreatedBy   string `json:"createdBy"`
 	ModifiedAt  string `json:"modifiedAt"`
 	Done        bool   `json:"done"`
-	Metadata    string `json:"metadata"`
 	Error       struct {
-		Code    string   `json:"code"`
-		Message string   `json:"message"`
-		Details []string `json:"details"`
+		Code    string `json:"code"`
+		Message string `json:"message"`
 	} `json:"error"`
-	Response string `json:"response"`
+}
+
+type GetFolderResponse struct {
+	ID          string `json:"id"`
+	CloudID     string `json:"cloudId"`
+	CreatedAt   string `json:"createdAt"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Labels      string `json:"labels"`
+	Status      string `json:"status"`
 }
 
 type CloudsResponse struct {
