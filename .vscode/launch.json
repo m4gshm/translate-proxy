@@ -17,12 +17,29 @@
             "args": []
         },
         {
-            "name": "Launch Package",
+            "name": "Launch port 443",
             "type": "go",
             "request": "launch",
-            "mode": "auto",
-            "program": "${fileDirname}",
+            "mode": "debug",
+            "program": ".",
+            "buildFlags": "-buildvcs=false",
+            "args": [
+                "-address",
+                ":443",
+                "-tls-cert-file",
+                "./server.crt",
+                "-tls-key-file",
+                "./server.key",
+            ],
             "asRoot": true
         }
+        // {
+        //     "name": "Launch Package",
+        //     "type": "go",
+        //     "request": "launch",
+        //     "mode": "auto",
+        //     "program": "${fileDirname}",
+        //     "asRoot": true
+        // }
     ]
 }

@@ -31,6 +31,8 @@ var (
 	foldersURL    = flag.String("cloud-folders-url", "https://resource-manager.api.cloud.yandex.net/resource-manager/v1/folders", "Yandex Cloud folders URL")
 	translateURL  = flag.String("translate-url", "https://translate.api.cloud.yandex.net/translate/v2/translate", "Yandex Translate API URL")
 	address       = flag.String("address", "localhost:8080", "http server address")
+	tlsCertFile   = flag.String("tls-cert-file", "", "tls cert file")
+	tlsKeyFile    = flag.String("tls-key-file", "", "tls key file")
 )
 
 func usage() {
@@ -106,9 +108,15 @@ func run() error {
 		storedConfig.Store(*configFile)
 	}
 
-	// yandex.Config = config
-	fmt.Printf("Start listening %s\n", *address)
-	return newServer(yandex, *address).ListenAndServe()
+	server := newServer(yandex, *address)
+	if tlsCertFile != nil && len(*tlsCertFile) > 0 && tlsKeyFile != nil && len(*tlsKeyFile) > 0 {
+		fmt.Printf("Start TLS listening %s\n", *address)
+		return server.ListenAndServeTLS(*tlsCertFile, *tlsKeyFile)
+	} else {
+		fmt.Printf("Start listening %s\n", *address)
+		return server.ListenAndServe()
+	}
+
 }
 
 func newServer(yandex *YandexClient, addr string) *http.Server {
@@ -118,7 +126,11 @@ func newServer(yandex *YandexClient, addr string) *http.Server {
 	r.Route("/", func(r chi.Router) {
 		r.HandleFunc("/", handler.Default)
 		r.Post("/", handler.Post)
-
+		//old yandex translate emulation
+		r.Route("/api/v1.5/tr.json/translate", func(r chi.Router) {
+			r.Options("/", handler.v1_5Options)
+			r.Get("/", handler.v1_5Get)
+		})
 	})
 	return &http.Server{Addr: addr, Handler: r}
 }
@@ -134,10 +146,18 @@ type Handler struct {
 func (h *Handler) Default(response http.ResponseWriter, request *http.Request) {
 	cors(response)
 	response.WriteHeader(http.StatusOK)
+	response.Write([]byte("ok"))
 }
 
 func (h *Handler) Post(response http.ResponseWriter, request *http.Request) {
-	if body, err := h.translate(request); err != nil {
+	payload, err := extractTranslateRequest(request)
+	if err != nil {
+		logError(err)
+		http.Error(response, err.Error(), http.StatusBadRequest)
+	} else if result, err := h.translate(payload); err != nil {
+		logError(err)
+		http.Error(response, err.Error(), http.StatusBadRequest)
+	} else if body, err := json.Marshal(result); err != nil {
 		logError(err)
 		http.Error(response, err.Error(), http.StatusBadRequest)
 	} else {
@@ -150,7 +170,48 @@ func (h *Handler) Post(response http.ResponseWriter, request *http.Request) {
 	}
 }
 
-func (h *Handler) translate(request *http.Request) ([]byte, error) {
+func (h *Handler) v1_5Options(response http.ResponseWriter, request *http.Request) {
+	response.Header().Add("Allow", "GET,OPTIONS")
+	response.WriteHeader(http.StatusOK)
+}
+
+func (h *Handler) v1_5Get(response http.ResponseWriter, request *http.Request) {
+	q := request.URL.Query()
+	text := q.Get("text")
+	lang := q.Get("lang")
+	srcLang, destLang := splitSrcDestLanguages(lang)
+	payload := &TranslateRequest{
+		Texts:              []string{text},
+		SourceLanguageCode: srcLang,
+		TargetLanguageCode: destLang,
+	}
+	if result, err := h.translate(payload); err != nil {
+		logError(err)
+		http.Error(response, err.Error(), http.StatusBadRequest)
+	} else if body, err := json.Marshal(toV1_5Response(result)); err != nil {
+		logError(err)
+		http.Error(response, err.Error(), http.StatusBadRequest)
+	} else {
+		cors(response)
+		response.WriteHeader(http.StatusOK)
+		if _, err := response.Write(body); err != nil {
+			logError(err)
+			http.Error(response, err.Error(), http.StatusBadRequest)
+		}
+	}
+}
+
+func toV1_5Response(result *TranslateResponse) *V1_5TranslateResponse {
+	return &V1_5TranslateResponse{
+		Text: slice.Convert(result.Translations, func(t Translation) string { return t.Text }),
+	}
+}
+
+type V1_5TranslateResponse struct {
+	Text []string `json:"text"`
+}
+
+func extractTranslateRequest(request *http.Request) (*TranslateRequest, error) {
 	body, err := ioutil.ReadAll(request.Body)
 	if err != nil {
 		return nil, fmt.Errorf("request read: %w", err)
@@ -163,12 +224,11 @@ func (h *Handler) translate(request *http.Request) ([]byte, error) {
 
 	payload.SourceLanguageCode = extractLanguage(payload.SourceLanguageCode)
 	payload.TargetLanguageCode = extractLanguage(payload.TargetLanguageCode)
+	return payload, nil
+}
 
-	respPayload, err := h.yandex.Translate(payload)
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(respPayload)
+func (h *Handler) translate(payload *TranslateRequest) (*TranslateResponse, error) {
+	return h.yandex.Translate(payload)
 }
 
 func extractLanguage(langCountry string) string {
@@ -176,6 +236,14 @@ func extractLanguage(langCountry string) string {
 		return strings.Split(langCountry, "-")[0]
 	}
 	return langCountry
+}
+
+func splitSrcDestLanguages(language string) (string, string) {
+	if strings.Contains(language, "-") {
+		ls := strings.Split(language, "-")
+		return ls[0], ls[1]
+	}
+	return "", ""
 }
 
 func cors(w http.ResponseWriter) {

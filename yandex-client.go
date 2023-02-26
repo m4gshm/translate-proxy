@@ -302,10 +302,10 @@ type TranslateRequest struct {
 }
 
 type TranslateResponse struct {
-	Translations []Translations `json:"translations"`
+	Translations []Translation `json:"translations"`
 }
 
-type Translations struct {
+type Translation struct {
 	Text                 string `json:"text"`
 	DetectedLanguageCode string `json:"detectedLanguageCode"`
 }
