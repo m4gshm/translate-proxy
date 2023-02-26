@@ -125,7 +125,7 @@ func (c *YandexClient) Translate(request *TranslateRequest) (*TranslateResponse,
 	} else if err := doPostRequest("translate", c.client, c.translateURL, iamToken, request, resp, true); err != nil {
 		var statusErr *HTTPStatusError
 		if errors.As(err, &statusErr) && statusErr.Code == 401 {
-			logDebug("unauthorized translate request, trying to refresh token, message: %s", statusErr.Error())
+			logDebugf("unauthorized translate request, trying to refresh token, message: %s", statusErr.Error())
 			if iamToken, err = c.refreshIamToken(c.writeableConfig); err != nil {
 				return nil, err
 			} else if err := doPostRequest("translate", c.client, c.translateURL, iamToken, request, resp, true); err != nil {

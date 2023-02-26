@@ -162,20 +162,16 @@ func (h *Handler) Default(response http.ResponseWriter, request *http.Request) {
 func (h *Handler) Post(response http.ResponseWriter, request *http.Request) {
 	payload, err := extractTranslateRequest(request)
 	if err != nil {
-		logError(err)
-		http.Error(response, err.Error(), http.StatusBadRequest)
+		writeError(response, err)
 	} else if result, err := h.translate(payload); err != nil {
-		logError(err)
-		http.Error(response, err.Error(), http.StatusBadRequest)
+		writeError(response, err)
 	} else if body, err := json.Marshal(result); err != nil {
-		logError(err)
-		http.Error(response, err.Error(), http.StatusBadRequest)
+		writeError(response, err)
 	} else {
 		cors(response)
 		response.WriteHeader(http.StatusOK)
 		if _, err := response.Write(body); err != nil {
-			logError(err)
-			http.Error(response, err.Error(), http.StatusBadRequest)
+			writeError(response, err)
 		}
 	}
 }
@@ -189,26 +185,28 @@ func (h *Handler) v1_5Get(response http.ResponseWriter, request *http.Request) {
 	q := request.URL.Query()
 	text := q.Get("text")
 	lang := q.Get("lang")
-	srcLang, destLang := splitSrcDestLanguages(lang)
-	payload := &TranslateRequest{
+	if srcLang, destLang, err := splitSrcDestLanguages(lang); err != nil {
+		writeError(response, err)
+	} else if result, err := h.translate(&TranslateRequest{
 		Texts:              []string{text},
 		SourceLanguageCode: srcLang,
 		TargetLanguageCode: destLang,
-	}
-	if result, err := h.translate(payload); err != nil {
-		logError(err)
-		http.Error(response, err.Error(), http.StatusBadRequest)
+	}); err != nil {
+		writeError(response, err)
 	} else if body, err := json.Marshal(toV1_5Response(result)); err != nil {
-		logError(err)
-		http.Error(response, err.Error(), http.StatusBadRequest)
+		writeError(response, err)
 	} else {
 		cors(response)
 		response.WriteHeader(http.StatusOK)
 		if _, err := response.Write(body); err != nil {
-			logError(err)
-			http.Error(response, err.Error(), http.StatusBadRequest)
+			writeError(response, err)
 		}
 	}
+}
+
+func writeError(response http.ResponseWriter, err error) {
+	logError(err)
+	http.Error(response, err.Error(), http.StatusBadRequest)
 }
 
 func toV1_5Response(result *TranslateResponse) *V1_5TranslateResponse {
@@ -248,12 +246,27 @@ func extractLanguage(langCountry string) string {
 	return langCountry
 }
 
-func splitSrcDestLanguages(language string) (string, string) {
-	if strings.Contains(language, "-") {
-		ls := strings.Split(language, "-")
-		return ls[0], ls[1]
+func splitSrcDestLanguages(language string) (string, string, error) {
+	if len(language) == 0 {
+		return "", "", fmt.Errorf("empty source-destination languages format (expected SRC-DST)")
 	}
-	return "", ""
+	if !strings.Contains(language, "-") {
+		return "", "", fmt.Errorf("bad source-destination languages format %s (expected SRC-DST)", language)
+	}
+
+	ls := strings.Split(language, "-")
+
+	if len(ls) != 2 {
+		return "", "", fmt.Errorf("unexpected source-destination languages format %s (expected SRC-DST)", language)
+	}
+	srcLang, destLang := ls[0], ls[1]
+	if len(srcLang) == 0 {
+		return "", "", fmt.Errorf("bad source language: %s", language)
+	}
+	if len(destLang) == 0 {
+		return "", "", fmt.Errorf("bad destination language: %s", language)
+	}
+	return srcLang, destLang, nil
 }
 
 func cors(w http.ResponseWriter) {
@@ -340,7 +353,7 @@ func selectFolder(yandex *YandexClient, folderID string) (string, error) {
 			if _, err := yandex.GetCloudFolder(folderID); err != nil {
 				var statusErr *HTTPStatusError
 				if errors.As(err, &statusErr) && statusErr.Code == http.StatusNotFound {
-					logDebug("configured folder %s not found", folderID)
+					logDebugf("configured folder %s not found", folderID)
 					folderID = ""
 					repeat = true
 				} else {
@@ -353,12 +366,12 @@ func selectFolder(yandex *YandexClient, folderID string) (string, error) {
 }
 
 func createFolder(yandex *YandexClient, cloudID, folderName string) (string, error) {
-	logDebug("trying to create folder %s", folderName)
+	logDebugf("trying to create folder %s", folderName)
 	resp, err := yandex.CreateCloudFolder(cloudID, folderName)
 	if err != nil {
 		var statusErr *HTTPStatusError
 		if errors.As(err, &statusErr) && statusErr.Code == http.StatusConflict {
-			logDebug("cannot create folder %s because it conflicts with some one might may be has marked as deleted", folderName)
+			logDebugf("cannot create folder %s because it conflicts with some one might may be has marked as deleted", folderName)
 			fmt.Print("Please enter your new folder name: ")
 			if _, err := fmt.Scanln(&folderName); err != nil {
 				return "", err

@@ -20,11 +20,11 @@ type Config struct {
 }
 
 func ReadConfig(file string) (*Config, error) {
-	logDebug("read config file %s", file)
+	logDebugf("read config file %s", file)
 	config := new(Config)
 	if payload, err := ioutil.ReadFile(file); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			logDebug("config file not found")
+			logDebugf("config file not found")
 		} else {
 			return nil, err
 		}
@@ -35,7 +35,7 @@ func ReadConfig(file string) (*Config, error) {
 }
 
 func WriteConfig(config *Config, file string) error {
-	logDebug("write config file %s", file)
+	logDebugf("write config file %s", file)
 	if payload, err := yaml.Marshal(config); err != nil {
 		return err
 	} else if err := os.MkdirAll(path.Dir(file), os.ModePerm); err != nil {

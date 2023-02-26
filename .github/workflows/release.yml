@@ -12,16 +12,19 @@ jobs:
       - name: build artifacts
         uses: docker://golang:1.18.0-bullseye
         with:
-          args: make buildbin
+          args: make build-bin
       - uses: montudor/action-zip@v1
         with:
-          args: zip -j bin/translate-proxy-win.zip bin/translate-proxy.exe
+          args: zip -j bin/translate-proxy-win.zip bin/win/translate-proxy.exe
       - uses: montudor/action-zip@v1
         with:
-          args: zip -j bin/translate-proxy-linux.zip bin/translate-proxy-linux
+          args: zip -j bin/translate-proxy-linux.zip bin/linux/translate-proxy
       - uses: montudor/action-zip@v1
         with:
-          args: zip -j bin/translate-proxy-mac.zip bin/translate-proxy-mac
+          args: zip -j bin/translate-proxy-mac-intel.zip bin/mac/intel/translate-proxy
+      - uses: montudor/action-zip@v1
+        with:
+          args: zip -j bin/translate-proxy-mac-arm.zip bin/mac/arm/translate-proxy          
       - name: upload the artifacts
         uses: skx/github-action-publish-binaries@master
         env:

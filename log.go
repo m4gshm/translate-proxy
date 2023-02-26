@@ -10,6 +10,6 @@ func logPayload(typ string, payload []byte) {
 	log.Println(typ, ":", string(payload))
 }
 
-func logDebug(format string, v ...any) {
+func logDebugf(format string, v ...any) {
 	log.Printf(format+"\n", v...)
 }
