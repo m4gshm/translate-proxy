@@ -156,7 +156,7 @@ type Handler struct {
 func (h *Handler) Default(response http.ResponseWriter, request *http.Request) {
 	cors(response)
 	response.WriteHeader(http.StatusOK)
-	response.Write([]byte("ok"))
+	_, _ = response.Write([]byte("ok"))
 }
 
 func (h *Handler) Post(response http.ResponseWriter, request *http.Request) {

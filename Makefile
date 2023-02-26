@@ -37,7 +37,6 @@ build-docker:
 .PHONY: lint
 lint:
 	$(info #Lints...)
-	echo ${PATH}
 	go install golang.org/x/tools/cmd/goimports@latest
 	goimports -w .
 	# go vet ./...
