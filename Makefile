@@ -25,6 +25,15 @@ build-bin:
 	GOOS=darwin GOARCH=amd64 go build -o bin/translate-proxy-mac-intel ./...
 	GOOS=darwin GOARCH=arm64 go build -o bin/translate-proxy-mac-arm ./...
 
+.PHONY: build-docker
+build-docker:
+	$(info #Building linux binary for Docker container)
+	docker rmi translate-proxy
+	go clean -cache
+	GOOS=linux GOARCH=amd64 go build -o docker/translate-proxy ./...
+	docker build --tag translate-proxy ./docker
+
+
 .PHONY: lint
 lint:
 	$(info #Lints...)

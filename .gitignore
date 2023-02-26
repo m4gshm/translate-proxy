@@ -4,3 +4,5 @@ translate-proxy.exe
 translate-proxy
 translate-proxy-mac
 translate-proxy-linux
+docker/translate-proxy
+docker/config.yaml

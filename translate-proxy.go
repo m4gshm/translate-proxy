@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -31,6 +32,8 @@ var (
 	foldersURL    = flag.String("cloud-folders-url", "https://resource-manager.api.cloud.yandex.net/resource-manager/v1/folders", "Yandex Cloud folders URL")
 	translateURL  = flag.String("translate-url", "https://translate.api.cloud.yandex.net/translate/v2/translate", "Yandex Translate API URL")
 	address       = flag.String("address", "localhost:8080", "http server address")
+	insecure      = flag.Bool("insecure", false, "disable server certs verifying")
+	accesslog     = flag.Bool("accesslog", false, "enable access log")
 	tlsCertFile   = flag.String("tls-cert-file", "", "tls cert file")
 	tlsKeyFile    = flag.String("tls-key-file", "", "tls key file")
 )
@@ -68,7 +71,12 @@ func run() error {
 	}
 	loadedConfig := *config
 
-	yandex, err := NewYandexClient(*configFile, writeableConfig, config, &http.Client{}, *iamTokenURL, *cloudsURL, *foldersURL, *translateURL)
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: *insecure},
+		},
+	}
+	yandex, err := NewYandexClient(*configFile, writeableConfig, config, client, *iamTokenURL, *cloudsURL, *foldersURL, *translateURL)
 	checkedOAuth := false
 	for !checkedOAuth {
 		if len(config.OAuthToken) == 0 {
@@ -108,7 +116,7 @@ func run() error {
 		storedConfig.Store(*configFile)
 	}
 
-	server := newServer(yandex, *address)
+	server := newServer(yandex, *address, *accesslog)
 	if tlsCertFile != nil && len(*tlsCertFile) > 0 && tlsKeyFile != nil && len(*tlsKeyFile) > 0 {
 		fmt.Printf("Start TLS listening %s\n", *address)
 		return server.ListenAndServeTLS(*tlsCertFile, *tlsKeyFile)
@@ -116,11 +124,13 @@ func run() error {
 		fmt.Printf("Start listening %s\n", *address)
 		return server.ListenAndServe()
 	}
-
 }
 
-func newServer(yandex *YandexClient, addr string) *http.Server {
+func newServer(yandex *YandexClient, addr string, accesslog bool) *http.Server {
 	r := chi.NewRouter()
+	if accesslog {
+		r.Use(middleware.Logger)
+	}
 	r.Use(middleware.Recoverer)
 	handler := NewHandler(yandex)
 	r.Route("/", func(r chi.Router) {
