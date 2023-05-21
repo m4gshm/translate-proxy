@@ -29,7 +29,7 @@ func ReadConfig(file string) (*Config, error) {
 			return nil, err
 		}
 	} else if err := yaml.Unmarshal(payload, config); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read config file: %w", err)
 	}
 	return config, nil
 }
