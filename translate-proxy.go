@@ -78,6 +78,10 @@ func run() error {
 		},
 	}
 	yandex, err := NewYandexClient(*configFile, writeableConfig, config, client, *iamTokenURL, *cloudsURL, *foldersURL, *translateURL)
+	if err != nil {
+		return fmt.Errorf("yandex client: %w", err)
+	}
+
 	checkedOAuth := false
 	for !checkedOAuth {
 		if len(config.OAuthToken) == 0 {
@@ -87,10 +91,6 @@ func run() error {
 			if _, err := fmt.Scanln(&config.OAuthToken); err != nil {
 				return err
 			}
-		}
-
-		if err != nil {
-			return fmt.Errorf("yandex client: %w", err)
 		}
 
 		//requests iam token for oauth checking
@@ -239,25 +239,19 @@ func extractLanguage(langCountry string) string {
 	return langCountry
 }
 
-func splitSrcDestLanguages(language string) (string, string, error) {
+func splitSrcDestLanguages(language string) (srcLang string, destLang string, err error) {
 	if len(language) == 0 {
-		return "", "", fmt.Errorf("empty source-destination languages format (expected SRC-DST)")
+		err = fmt.Errorf("empty source-destination languages format (expected SRC-DST)")
 	} else if !strings.Contains(language, "-") {
-		return "", "", fmt.Errorf("bad source-destination languages format %s (expected SRC-DST)", language)
-	}
-
-	ls := strings.Split(language, "-")
-
-	if len(ls) != 2 {
-		return "", "", fmt.Errorf("unexpected source-destination languages format %s (expected SRC-DST)", language)
-	}
-	srcLang, destLang := ls[0], ls[1]
-	if len(srcLang) == 0 {
-		return "", "", fmt.Errorf("bad source language: %s", language)
+		err = fmt.Errorf("bad source-destination languages format %s (expected SRC-DST)", language)
+	} else if ls := strings.Split(language, "-"); len(ls) != 2 {
+		err = fmt.Errorf("unexpected source-destination languages format %s (expected SRC-DST)", language)
+	} else if srcLang, destLang = ls[0], ls[1]; len(srcLang) == 0 {
+		err = fmt.Errorf("bad source language: %s", language)
 	} else if len(destLang) == 0 {
-		return "", "", fmt.Errorf("bad destination language: %s", language)
+		err = fmt.Errorf("bad destination language: %s", language)
 	}
-	return srcLang, destLang, nil
+	return srcLang, destLang, err
 }
 
 func cors(w http.ResponseWriter) {
