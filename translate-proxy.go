@@ -59,13 +59,13 @@ func run() error {
 	flag.Usage = usage
 	flag.Parse()
 
-	catcher := error_.Catcher{}
+	catcher := new(error_.Catcher)
 
 	writeableConfig := configFile == nil || len(*configFile) == 0
 	if writeableConfig {
-		*configFile = try.Get(catcher, func() string { return path.Join(try.GetCatch(catcher, os.UserHomeDir), ".config", name, "config.yaml") })
+		*configFile = try.Get(catcher, func() string { return path.Join(try.Gett(catcher, os.UserHomeDir), ".config", name, "config.yaml") })
 	}
-	config := try.ConvertCatch(catcher, *configFile, ReadConfig)
+	config := try.Convertt(catcher, *configFile, ReadConfig)
 	if err := catcher.Err; err != nil {
 		return err
 	}
@@ -161,14 +161,14 @@ func (h *Handler) Default(response http.ResponseWriter, request *http.Request) {
 }
 
 func (h *Handler) Post(response http.ResponseWriter, request *http.Request) {
-	var catch error_.Catcher
-	body := try.ConvertCatch[any](catch, try.ConvertCatch(catch, try.ConvertCatch(catch, request, extractTranslateRequest), h.translate), json.Marshal)
-	if catch.Err == nil {
+	catcher := new(error_.Catcher)
+	body := try.Convertt[any](catcher, try.Convertt(catcher, try.Convertt(catcher, request, extractTranslateRequest), h.translate), json.Marshal)
+	if catcher.Err == nil {
 		cors(response)
 		response.WriteHeader(http.StatusOK)
-		_, catch.Err = response.Write(body)
+		_, catcher.Err = response.Write(body)
 	}
-	if err := catch.Err; err != nil {
+	if err := catcher.Err; err != nil {
 		writeError(response, err)
 	}
 }
@@ -180,11 +180,11 @@ func (h *Handler) v1_5Options(response http.ResponseWriter, request *http.Reques
 
 func (h *Handler) v1_5Get(response http.ResponseWriter, request *http.Request) {
 	q := request.URL.Query()
-	text, lang := q.Get("text"), q.Get("lang")
-	catcher, srcLang, destLang := catch.Two(splitSrcDestLanguages(lang))
 
-	body := try.ConvertCatch[any](catcher, try.Convert(catcher, try.ConvertCatch(catcher, &TranslateRequest{
-		Texts: []string{text}, SourceLanguageCode: srcLang, TargetLanguageCode: destLang,
+	catcher, srcLang, destLang := catch.Two(splitSrcDestLanguages(q.Get("lang")))
+
+	body := try.Convertt[any](catcher, try.Convert(catcher, try.Convertt(catcher, &TranslateRequest{
+		Texts: []string{q.Get("text")}, SourceLanguageCode: srcLang, TargetLanguageCode: destLang,
 	}, h.translate), toV1_5Response), json.Marshal)
 
 	if catcher.Err == nil {
