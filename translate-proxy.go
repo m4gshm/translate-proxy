@@ -19,6 +19,8 @@ import (
 	"github.com/m4gshm/expressions/error_/catch"
 	"github.com/m4gshm/expressions/error_/try"
 	"github.com/m4gshm/gollections/expr/use"
+	"github.com/m4gshm/gollections/predicate/eq"
+	"github.com/m4gshm/gollections/predicate/match"
 	"github.com/m4gshm/gollections/slice"
 )
 
@@ -82,8 +84,7 @@ func run() error {
 		return fmt.Errorf("yandex client: %w", err)
 	}
 
-	checkedOAuth := false
-	for !checkedOAuth {
+	for checkedOAuth := false; !checkedOAuth; {
 		if len(config.OAuthToken) == 0 {
 			fmt.Println("Please go to", *oAuthTokenURL)
 			fmt.Println("in order to obtain OAuth token.")
@@ -95,8 +96,7 @@ func run() error {
 
 		//requests iam token for oauth checking
 		if _, err := yandex.GetIamToken(); err != nil {
-			var statusErr *HTTPStatusError
-			if errors.As(err, &statusErr) && statusErr.Code == http.StatusUnauthorized {
+			if error_.Check(err, match.To((*HTTPStatusError).Code, eq.To(http.StatusUnauthorized))) {
 				config.OAuthToken = ""
 			} else {
 				return err
@@ -314,9 +314,8 @@ func selectFolder(yandex *YandexClient, folderID string) (string, error) {
 				} else if folderID, err = getUserSelectedFolder(selectedFolders); err != nil {
 					return "", err
 				}
-
 			}
-		} else if _, err := yandex.GetCloudFolder(folderID); error_.Check(err, func(he *HTTPStatusError) bool { return he.Code == http.StatusNotFound }) {
+		} else if _, err := yandex.GetCloudFolder(folderID); error_.Check(err, match.To((*HTTPStatusError).Code, eq.To(http.StatusNotFound))) {
 			logDebugf("configured folder %s not found", folderID)
 			folderID = ""
 			repeat = true
@@ -354,7 +353,7 @@ func createFolder(yandex *YandexClient, cloudID, folderName string) (string, err
 	resp, err := yandex.CreateCloudFolder(cloudID, folderName)
 	if err != nil {
 		var statusErr *HTTPStatusError
-		if errors.As(err, &statusErr) && statusErr.Code == http.StatusConflict {
+		if errors.As(err, &statusErr) && statusErr.code == http.StatusConflict {
 			logDebugf("cannot create folder %s because it conflicts with some one might may be has marked as deleted", folderName)
 			fmt.Print("Please enter your new folder name: ")
 			if _, err := fmt.Scanln(&folderName); err != nil {

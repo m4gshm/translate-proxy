@@ -1,8 +1,8 @@
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
 github.com/go-chi/chi/v5 v5.0.8 h1:lD+NLqFcAi1ovnVZpsnObHGW4xb4J8lNmoYVfECH1Y0=
 github.com/go-chi/chi/v5 v5.0.8/go.mod h1:DslCQbL2OYiznFReuXYUmQ2hGd1aDpCnlMNITLSKoi8=
-github.com/m4gshm/expressions v0.0.0-20230521073636-a12bcc0b2407 h1:Y+TQ58Lp6SfNk0OINyvxCdfdPThXjzcvsanDOGNA6eg=
-github.com/m4gshm/expressions v0.0.0-20230521073636-a12bcc0b2407/go.mod h1:JYSo5/gWIjF9pPcw1YWGVQ52WRau/wv6d/D2NtOluSs=
+github.com/m4gshm/expressions v0.0.0-20230521221038-cf8c1d04bc4f h1:wJUNUkNxUAPIzk0oPcxO+xPYHbTF5ScOaj72CMoG1zA=
+github.com/m4gshm/expressions v0.0.0-20230521221038-cf8c1d04bc4f/go.mod h1:JYSo5/gWIjF9pPcw1YWGVQ52WRau/wv6d/D2NtOluSs=
 github.com/m4gshm/gollections v0.0.9 h1:I/Y0wMMPNWx4OTAyRPXIB+MNMSHszqcYM2VzotXDGmI=
 github.com/m4gshm/gollections v0.0.9/go.mod h1:TRYgTUE6ik68ZebsEtdEfB1wDVpvVDWPi90xHWrEZgg=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
