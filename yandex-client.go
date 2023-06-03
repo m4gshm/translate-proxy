@@ -242,18 +242,16 @@ func doRequest[T any](methodName string, client *http.Client, req *http.Request,
 }
 
 func readBody(resp *http.Response) ([]byte, error) {
-	respBody := resp.Body
-	if respBody == nil {
+	if respBody := resp.Body; respBody == nil {
 		return nil, nil
+	} else {
+		defer func() { _ = respBody.Close() }()
+		if payload, err := ioutil.ReadAll(respBody); err != nil {
+			return nil, err
+		} else {
+			return payload, nil
+		}
 	}
-	defer func() {
-		_ = respBody.Close()
-	}()
-	payload, err := ioutil.ReadAll(respBody)
-	if err != nil {
-		return nil, err
-	}
-	return payload, nil
 }
 
 type IamTokenRequest struct {
