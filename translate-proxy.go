@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/tls"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -15,6 +14,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/m4gshm/expressions/error_"
+	"github.com/m4gshm/expressions/json"
+	"github.com/m4gshm/gollections/expr/use"
+	"github.com/m4gshm/gollections/predicate/eq"
+	"github.com/m4gshm/gollections/predicate/match"
 	"github.com/m4gshm/gollections/slice"
 )
 
@@ -69,6 +73,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("read config file: %w", err)
 	}
+
 	loadedConfig := *config
 
 	client := &http.Client{
@@ -77,8 +82,11 @@ func run() error {
 		},
 	}
 	yandex, err := NewYandexClient(*configFile, writeableConfig, config, client, *iamTokenURL, *cloudsURL, *foldersURL, *translateURL)
-	checkedOAuth := false
-	for !checkedOAuth {
+	if err != nil {
+		return fmt.Errorf("yandex client: %w", err)
+	}
+
+	for checkedOAuth := false; !checkedOAuth; {
 		if len(config.OAuthToken) == 0 {
 			fmt.Println("Please go to", *oAuthTokenURL)
 			fmt.Println("in order to obtain OAuth token.")
@@ -88,14 +96,9 @@ func run() error {
 			}
 		}
 
-		if err != nil {
-			return fmt.Errorf("yandex client: %w", err)
-		}
-
 		//requests iam token for oauth checking
 		if _, err := yandex.GetIamToken(); err != nil {
-			var statusErr *HTTPStatusError
-			if errors.As(err, &statusErr) && statusErr.Code == http.StatusUnauthorized {
+			if error_.Check(err, match.To((*HTTPStatusError).Code, eq.To(http.StatusUnauthorized))) {
 				config.OAuthToken = ""
 			} else {
 				return err
@@ -160,19 +163,14 @@ func (h *Handler) Default(response http.ResponseWriter, request *http.Request) {
 }
 
 func (h *Handler) Post(response http.ResponseWriter, request *http.Request) {
-	payload, err := extractTranslateRequest(request)
-	if err != nil {
-		writeError(response, err)
-	} else if result, err := h.translate(payload); err != nil {
-		writeError(response, err)
-	} else if body, err := json.Marshal(result); err != nil {
-		writeError(response, err)
-	} else {
+	if _, err := error_.Convertt(error_.Convertt(error_.Catch(extractTranslateRequest(request)), h.translate),
+		json.Marshal[*TranslateResponse]).Runn(func(body []byte) error {
 		cors(response)
 		response.WriteHeader(http.StatusOK)
-		if _, err := response.Write(body); err != nil {
-			writeError(response, err)
-		}
+		_, err := response.Write(body)
+		return err
+	}).Get(); err != nil {
+		writeError(response, err)
 	}
 }
 
@@ -185,22 +183,17 @@ func (h *Handler) v1_5Get(response http.ResponseWriter, request *http.Request) {
 	q := request.URL.Query()
 	text := q.Get("text")
 	lang := q.Get("lang")
-	if srcLang, destLang, err := splitSrcDestLanguages(lang); err != nil {
-		writeError(response, err)
-	} else if result, err := h.translate(&TranslateRequest{
-		Texts:              []string{text},
-		SourceLanguageCode: srcLang,
-		TargetLanguageCode: destLang,
-	}); err != nil {
-		writeError(response, err)
-	} else if body, err := json.Marshal(toV1_5Response(result)); err != nil {
-		writeError(response, err)
-	} else {
+
+	if _, err := error_.Convertt(error_.Convert(error_.Convertt(error_.Narrow(error_.Catch2(splitSrcDestLanguages(lang)),
+		func(srcLang, destLang string) *TranslateRequest {
+			return &TranslateRequest{Texts: []string{text}, SourceLanguageCode: srcLang, TargetLanguageCode: destLang}
+		}), h.translate), toV1_5Response), json.Marshal[*V1_5TranslateResponse]).Runn(func(body []byte) error {
 		cors(response)
 		response.WriteHeader(http.StatusOK)
-		if _, err := response.Write(body); err != nil {
-			writeError(response, err)
-		}
+		_, err := response.Write(body)
+		return err
+	}).Get(); err != nil {
+		writeError(response, err)
 	}
 }
 
@@ -220,19 +213,12 @@ type V1_5TranslateResponse struct {
 }
 
 func extractTranslateRequest(request *http.Request) (*TranslateRequest, error) {
-	body, err := ioutil.ReadAll(request.Body)
-	if err != nil {
-		return nil, fmt.Errorf("request read: %w", err)
-	}
-
-	payload := new(TranslateRequest)
-	if err = json.Unmarshal(body, payload); err != nil {
-		return nil, fmt.Errorf("request unmarshal: %w", err)
-	}
-
-	payload.SourceLanguageCode = extractLanguage(payload.SourceLanguageCode)
-	payload.TargetLanguageCode = extractLanguage(payload.TargetLanguageCode)
-	return payload, nil
+	return error_.Convert(error_.Convertt(error_.Catch(ioutil.ReadAll(request.Body)),
+		json.Unmarshal[*TranslateRequest]), func(payload *TranslateRequest) *TranslateRequest {
+		payload.SourceLanguageCode = extractLanguage(payload.SourceLanguageCode)
+		payload.TargetLanguageCode = extractLanguage(payload.TargetLanguageCode)
+		return payload
+	}).Get()
 }
 
 func (h *Handler) translate(payload *TranslateRequest) (*TranslateResponse, error) {
@@ -246,27 +232,19 @@ func extractLanguage(langCountry string) string {
 	return langCountry
 }
 
-func splitSrcDestLanguages(language string) (string, string, error) {
+func splitSrcDestLanguages(language string) (srcLang string, destLang string, err error) {
 	if len(language) == 0 {
-		return "", "", fmt.Errorf("empty source-destination languages format (expected SRC-DST)")
+		err = fmt.Errorf("empty source-destination languages format (expected SRC-DST)")
+	} else if !strings.Contains(language, "-") {
+		err = fmt.Errorf("bad source-destination languages format %s (expected SRC-DST)", language)
+	} else if ls := strings.Split(language, "-"); len(ls) != 2 {
+		err = fmt.Errorf("unexpected source-destination languages format %s (expected SRC-DST)", language)
+	} else if srcLang, destLang = ls[0], ls[1]; len(srcLang) == 0 {
+		err = fmt.Errorf("bad source language: %s", language)
+	} else if len(destLang) == 0 {
+		err = fmt.Errorf("bad destination language: %s", language)
 	}
-	if !strings.Contains(language, "-") {
-		return "", "", fmt.Errorf("bad source-destination languages format %s (expected SRC-DST)", language)
-	}
-
-	ls := strings.Split(language, "-")
-
-	if len(ls) != 2 {
-		return "", "", fmt.Errorf("unexpected source-destination languages format %s (expected SRC-DST)", language)
-	}
-	srcLang, destLang := ls[0], ls[1]
-	if len(srcLang) == 0 {
-		return "", "", fmt.Errorf("bad source language: %s", language)
-	}
-	if len(destLang) == 0 {
-		return "", "", fmt.Errorf("bad destination language: %s", language)
-	}
-	return srcLang, destLang, nil
+	return srcLang, destLang, err
 }
 
 func cors(w http.ResponseWriter) {
@@ -318,51 +296,47 @@ func selectFolder(yandex *YandexClient, folderID string) (string, error) {
 					return "", err
 				}
 			} else {
-				selectedFolders := folders.Folders
-				onlyActiveFolders := !*allFolders
-				if onlyActiveFolders {
-					selectedFolders = slice.Filter(selectedFolders, func(f Folder) bool { return f.Status == "ACTIVE" })
-				}
+				selectedFolders := use.If(*allFolders, folders.Folders).ElseGet(func() []Folder {
+					return slice.Filter(folders.Folders, func(f Folder) bool { return f.Status == "ACTIVE" })
+				})
+
 				if len(selectedFolders) == 1 {
 					folder := selectedFolders[0]
 					fmt.Printf("folder %s (id = %s, status = %s) automatically selected\n", folder.Name, folder.ID, folder.Status)
 					folderID = folder.ID
-				} else {
-					fmt.Println("Please choose a folder to use:")
-					for i, folder := range selectedFolders {
-						n := i + 1
-						fmt.Printf("[%d] folder%d (id = %s, name = %s, status = %s)\n", n, n, folder.ID, folder.Name, folder.Status)
-					}
-					fmt.Println("Please enter your numeric choice: ")
-					var folderNum int
-					if _, err := fmt.Scanln(&folderNum); err != nil {
-						return "", err
-					}
-					for {
-						if folderNum > 0 && folderNum <= len(selectedFolders) {
-							folder := selectedFolders[folderNum-1]
-							folderID = folder.ID
-							break
-						} else {
-							fmt.Printf("Entered invalid folder number, must be in the range  %d to %d\n", 1, len(selectedFolders))
-						}
-					}
-				}
-			}
-		} else {
-			if _, err := yandex.GetCloudFolder(folderID); err != nil {
-				var statusErr *HTTPStatusError
-				if errors.As(err, &statusErr) && statusErr.Code == http.StatusNotFound {
-					logDebugf("configured folder %s not found", folderID)
-					folderID = ""
-					repeat = true
-				} else {
+				} else if folderID, err = getUserSelectedFolder(selectedFolders); err != nil {
 					return "", err
 				}
 			}
+		} else if _, err := yandex.GetCloudFolder(folderID); error_.Check(err, match.To((*HTTPStatusError).Code, eq.To(http.StatusNotFound))) {
+			logDebugf("configured folder %s not found", folderID)
+			folderID = ""
+			repeat = true
+		} else if err != nil {
+			return "", err
 		}
 	}
 	return folderID, nil
+}
+
+func getUserSelectedFolder(selectedFolders []Folder) (string, error) {
+	fmt.Println("Please choose a folder to use:")
+	for i, folder := range selectedFolders {
+		n := i + 1
+		fmt.Printf("[%d] folder%d (id = %s, name = %s, status = %s)\n", n, n, folder.ID, folder.Name, folder.Status)
+	}
+	fmt.Println("Please enter your numeric choice: ")
+	for {
+		var folderNum int
+		if _, err := fmt.Scanln(&folderNum); err != nil {
+			return "", err
+		}
+		if folderNum > 0 && folderNum <= len(selectedFolders) {
+			return selectedFolders[folderNum-1].ID, nil
+		} else {
+			fmt.Printf("Entered invalid folder number, must be in the range  %d to %d\n", 1, len(selectedFolders))
+		}
+	}
 }
 
 func createFolder(yandex *YandexClient, cloudID, folderName string) (string, error) {
@@ -370,7 +344,7 @@ func createFolder(yandex *YandexClient, cloudID, folderName string) (string, err
 	resp, err := yandex.CreateCloudFolder(cloudID, folderName)
 	if err != nil {
 		var statusErr *HTTPStatusError
-		if errors.As(err, &statusErr) && statusErr.Code == http.StatusConflict {
+		if errors.As(err, &statusErr) && statusErr.code == http.StatusConflict {
 			logDebugf("cannot create folder %s because it conflicts with some one might may be has marked as deleted", folderName)
 			fmt.Print("Please enter your new folder name: ")
 			if _, err := fmt.Scanln(&folderName); err != nil {

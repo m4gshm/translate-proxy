@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -11,16 +10,48 @@ import (
 	"net/url"
 	"path"
 	"time"
+
+	"github.com/m4gshm/expressions/error_"
+	"github.com/m4gshm/gollections/predicate/eq"
+	"github.com/m4gshm/gollections/predicate/match"
 )
 
+//go:generate fieldr -debug -out . -type HTTPStatusError get-set -accessors get
 type HTTPStatusError struct {
-	Code   int
+	code   int
 	status string
 	body   string
 }
 
+func (h *HTTPStatusError) Code() int {
+	if h != nil {
+		return h.code
+	}
+
+	var no int
+	return no
+}
+
+func (h *HTTPStatusError) Status() string {
+	if h != nil {
+		return h.status
+	}
+
+	var no string
+	return no
+}
+
+func (h *HTTPStatusError) Body() string {
+	if h != nil {
+		return h.body
+	}
+
+	var no string
+	return no
+}
+
 func (e *HTTPStatusError) Error() string {
-	return fmt.Sprintf("invalid status %d : %s, response\n%s", e.Code, e.status, e.body)
+	return fmt.Sprintf("invalid status %d : %s, response\n%s", e.code, e.status, e.body)
 }
 
 var _ error = (*HTTPStatusError)(nil)
@@ -123,9 +154,8 @@ func (c *YandexClient) Translate(request *TranslateRequest) (*TranslateResponse,
 	if iamToken, err := c.getStoreIamToken(); err != nil {
 		return nil, err
 	} else if err := doPostRequest("translate", c.client, c.translateURL, iamToken, request, resp, true); err != nil {
-		var statusErr *HTTPStatusError
-		if errors.As(err, &statusErr) && statusErr.Code == 401 {
-			logDebugf("unauthorized translate request, trying to refresh token, message: %s", statusErr.Error())
+		if error_.Check(err, match.To((*HTTPStatusError).Code, eq.To(http.StatusUnauthorized))) {
+			logDebugf("unauthorized translate request, trying to refresh token, message: %s", err.Error())
 			if iamToken, err = c.refreshIamToken(c.writeableConfig); err != nil {
 				return nil, err
 			} else if err := doPostRequest("translate", c.client, c.translateURL, iamToken, request, resp, true); err != nil {
@@ -196,7 +226,7 @@ func doRequest[T any](methodName string, client *http.Client, req *http.Request,
 		return fmt.Errorf(methodName+" response: %w", err)
 	} else if resp.StatusCode != 200 {
 		payload, _ := readBody(resp)
-		return &HTTPStatusError{Code: resp.StatusCode, status: resp.Status, body: string(payload)}
+		return &HTTPStatusError{code: resp.StatusCode, status: resp.Status, body: string(payload)}
 	} else if bodyRawPayload, err := readBody(resp); err != nil {
 		return fmt.Errorf(methodName+" response payload read %s: %w", string(bodyRawPayload), err)
 	} else if bodyRawPayload == nil {
@@ -212,18 +242,16 @@ func doRequest[T any](methodName string, client *http.Client, req *http.Request,
 }
 
 func readBody(resp *http.Response) ([]byte, error) {
-	respBody := resp.Body
-	if respBody == nil {
+	if respBody := resp.Body; respBody == nil {
 		return nil, nil
+	} else {
+		defer func() { _ = respBody.Close() }()
+		if payload, err := ioutil.ReadAll(respBody); err != nil {
+			return nil, err
+		} else {
+			return payload, nil
+		}
 	}
-	defer func() {
-		_ = respBody.Close()
-	}()
-	payload, err := ioutil.ReadAll(respBody)
-	if err != nil {
-		return nil, err
-	}
-	return payload, nil
 }
 
 type IamTokenRequest struct {

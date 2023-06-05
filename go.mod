@@ -4,8 +4,12 @@ go 1.20
 
 require (
 	github.com/go-chi/chi/v5 v5.0.8
-	github.com/m4gshm/gollections v0.0.6
+	github.com/m4gshm/expressions v0.0.0-20230605220217-66f85e582662
+	github.com/m4gshm/gollections v0.0.9
 	gopkg.in/yaml.v2 v2.4.0
 )
 
-require golang.org/x/exp v0.0.0-20230224173230-c95f2b4c22f2 // indirect
+require (
+	github.com/stretchr/testify v1.8.3 // indirect
+	golang.org/x/exp v0.0.0-20230522175609-2e198f4a06a1 // indirect
+)
