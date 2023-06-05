@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/tls"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -16,8 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/m4gshm/expressions/error_"
-	"github.com/m4gshm/expressions/error_/catch"
-	"github.com/m4gshm/expressions/error_/try"
+	"github.com/m4gshm/expressions/json"
 	"github.com/m4gshm/gollections/expr/use"
 	"github.com/m4gshm/gollections/predicate/eq"
 	"github.com/m4gshm/gollections/predicate/match"
@@ -61,15 +59,19 @@ func run() error {
 	flag.Usage = usage
 	flag.Parse()
 
-	catcher := new(error_.Catcher)
-
-	writeableConfig := configFile == nil || len(*configFile) == 0
-	if writeableConfig {
-		*configFile = try.Get(catcher, func() string { return path.Join(try.Gett(catcher, os.UserHomeDir), ".config", name, "config.yaml") })
+	writeableConfig := false
+	if configFile == nil || len(*configFile) == 0 {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("home dir: %w", err)
+		}
+		*configFile = path.Join(homeDir, ".config", name, "config.yaml")
+		writeableConfig = true
 	}
-	config := try.Convertt(catcher, *configFile, ReadConfig)
-	if err := catcher.Err; err != nil {
-		return err
+
+	config, err := ReadConfig(*configFile)
+	if err != nil {
+		return fmt.Errorf("read config file: %w", err)
 	}
 
 	loadedConfig := *config
@@ -161,14 +163,13 @@ func (h *Handler) Default(response http.ResponseWriter, request *http.Request) {
 }
 
 func (h *Handler) Post(response http.ResponseWriter, request *http.Request) {
-	catcher := new(error_.Catcher)
-	body := try.Convertt[any](catcher, try.Convertt(catcher, try.Convertt(catcher, request, extractTranslateRequest), h.translate), json.Marshal)
-	if catcher.Err == nil {
+	if _, err := error_.Convertt(error_.Convertt(error_.Catch(extractTranslateRequest(request)), h.translate),
+		json.Marshal[*TranslateResponse]).Runn(func(body []byte) error {
 		cors(response)
 		response.WriteHeader(http.StatusOK)
-		_, catcher.Err = response.Write(body)
-	}
-	if err := catcher.Err; err != nil {
+		_, err := response.Write(body)
+		return err
+	}).Get(); err != nil {
 		writeError(response, err)
 	}
 }
@@ -180,19 +181,18 @@ func (h *Handler) v1_5Options(response http.ResponseWriter, request *http.Reques
 
 func (h *Handler) v1_5Get(response http.ResponseWriter, request *http.Request) {
 	q := request.URL.Query()
+	text := q.Get("text")
+	lang := q.Get("lang")
 
-	catcher, srcLang, destLang := catch.Two(splitSrcDestLanguages(q.Get("lang")))
-
-	body := try.Convertt[any](catcher, try.Convert(catcher, try.Convertt(catcher, &TranslateRequest{
-		Texts: []string{q.Get("text")}, SourceLanguageCode: srcLang, TargetLanguageCode: destLang,
-	}, h.translate), toV1_5Response), json.Marshal)
-
-	if catcher.Err == nil {
+	if _, err := error_.Convertt(error_.Convert(error_.Convertt(error_.Narrow(error_.Catch2(splitSrcDestLanguages(lang)),
+		func(srcLang, destLang string) *TranslateRequest {
+			return &TranslateRequest{Texts: []string{text}, SourceLanguageCode: srcLang, TargetLanguageCode: destLang}
+		}), h.translate), toV1_5Response), json.Marshal[*V1_5TranslateResponse]).Runn(func(body []byte) error {
 		cors(response)
 		response.WriteHeader(http.StatusOK)
-		_, catcher.Err = response.Write(body)
-	}
-	if err := catcher.Err; err != nil {
+		_, err := response.Write(body)
+		return err
+	}).Get(); err != nil {
 		writeError(response, err)
 	}
 }
@@ -213,19 +213,12 @@ type V1_5TranslateResponse struct {
 }
 
 func extractTranslateRequest(request *http.Request) (*TranslateRequest, error) {
-	body, err := ioutil.ReadAll(request.Body)
-	if err != nil {
-		return nil, fmt.Errorf("request read: %w", err)
-	}
-
-	payload := new(TranslateRequest)
-	if err = json.Unmarshal(body, payload); err != nil {
-		return nil, fmt.Errorf("request unmarshal: %w", err)
-	}
-
-	payload.SourceLanguageCode = extractLanguage(payload.SourceLanguageCode)
-	payload.TargetLanguageCode = extractLanguage(payload.TargetLanguageCode)
-	return payload, nil
+	return error_.Convert(error_.Convertt(error_.Catch(ioutil.ReadAll(request.Body)),
+		json.Unmarshal[*TranslateRequest]), func(payload *TranslateRequest) *TranslateRequest {
+		payload.SourceLanguageCode = extractLanguage(payload.SourceLanguageCode)
+		payload.TargetLanguageCode = extractLanguage(payload.TargetLanguageCode)
+		return payload
+	}).Get()
 }
 
 func (h *Handler) translate(payload *TranslateRequest) (*TranslateResponse, error) {
@@ -348,8 +341,6 @@ func getUserSelectedFolder(selectedFolders []Folder) (string, error) {
 
 func createFolder(yandex *YandexClient, cloudID, folderName string) (string, error) {
 	logDebugf("trying to create folder %s", folderName)
-	// catcher, resp := catch(yandex.CreateCloudFolder(cloudID, folderName))
-
 	resp, err := yandex.CreateCloudFolder(cloudID, folderName)
 	if err != nil {
 		var statusErr *HTTPStatusError
